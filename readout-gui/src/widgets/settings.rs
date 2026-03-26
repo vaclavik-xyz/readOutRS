@@ -1,4 +1,4 @@
-use readout_persistence::config::AppConfiguration;
+use readout_persistence::config::{AppConfiguration, DashboardDeviceVisibility, ObsOutputMode};
 
 pub struct SettingsPanel {
     pub open: bool,
@@ -107,6 +107,7 @@ impl SettingsPanel {
                             &mut self.draft.beep_on_short_meter,
                             "Beep on short (meter)",
                         );
+                        ui.checkbox(&mut self.draft.popout_alarm_emphasis_enabled, "Popout alarm emphasis");
                     });
 
                     // --- CSV Logging ---
@@ -145,6 +146,40 @@ impl SettingsPanel {
                             ui.label("USB-C file:");
                             ui.text_edit_singleline(&mut self.draft.usbc_output_file);
                         });
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            ui.label("MM output mode:");
+                            ui.selectable_value(&mut self.draft.multimeter_obs_output_mode, ObsOutputMode::ValueOnly, "ValueOnly");
+                            ui.selectable_value(&mut self.draft.multimeter_obs_output_mode, ObsOutputMode::ValueAndUnit, "ValueAndUnit");
+                            ui.selectable_value(&mut self.draft.multimeter_obs_output_mode, ObsOutputMode::CustomTemplate, "CustomTemplate");
+                        });
+                        if self.draft.multimeter_obs_output_mode == ObsOutputMode::CustomTemplate {
+                            ui.horizontal(|ui| {
+                                ui.label("MM template:");
+                                ui.text_edit_singleline(&mut self.draft.multimeter_obs_custom_template);
+                            });
+                        }
+                        ui.horizontal(|ui| {
+                            ui.label("USB-C output mode:");
+                            ui.selectable_value(&mut self.draft.usbc_obs_output_mode, ObsOutputMode::ValueOnly, "ValueOnly");
+                            ui.selectable_value(&mut self.draft.usbc_obs_output_mode, ObsOutputMode::ValueAndUnit, "ValueAndUnit");
+                            ui.selectable_value(&mut self.draft.usbc_obs_output_mode, ObsOutputMode::CustomTemplate, "CustomTemplate");
+                        });
+                        if self.draft.usbc_obs_output_mode == ObsOutputMode::CustomTemplate {
+                            ui.horizontal(|ui| {
+                                ui.label("USB-C template:");
+                                ui.text_edit_singleline(&mut self.draft.usbc_obs_custom_template);
+                            });
+                        }
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            ui.label("MM label:");
+                            ui.text_edit_singleline(&mut self.draft.multimeter_value_label);
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("USB-C label:");
+                            ui.text_edit_singleline(&mut self.draft.usbc_value_label);
+                        });
                     });
 
                     // --- Appearance ---
@@ -156,6 +191,13 @@ impl SettingsPanel {
                             ui.selectable_value(&mut self.draft.dashboard_theme, DashboardTheme::Dark, "Dark");
                             ui.selectable_value(&mut self.draft.dashboard_theme, DashboardTheme::Light, "Light");
                         });
+                        ui.horizontal(|ui| {
+                            ui.label("Visibility:");
+                            ui.selectable_value(&mut self.draft.dashboard_device_visibility, DashboardDeviceVisibility::Both, "Both");
+                            ui.selectable_value(&mut self.draft.dashboard_device_visibility, DashboardDeviceVisibility::Multimeter, "Multimeter");
+                            ui.selectable_value(&mut self.draft.dashboard_device_visibility, DashboardDeviceVisibility::UsbC, "USB-C");
+                        });
+                        ui.checkbox(&mut self.draft.runtime_log_capture_enabled, "Capture runtime logs");
                     });
 
                     // --- Audio ---
