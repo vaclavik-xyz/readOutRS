@@ -96,6 +96,12 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
         Ok(measurement)
     }
 
+    pub async fn set_beeper(&mut self, enabled: bool) {
+        let cmd = if enabled { "SYST:BEEP:STAT ON" } else { "SYST:BEEP:STAT OFF" };
+        let _ = self.transport.query(cmd).await;
+        self.meter_beep_enabled = enabled;
+    }
+
     pub async fn close(&mut self) {
         self.transport.close().await;
     }

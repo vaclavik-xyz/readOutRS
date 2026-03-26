@@ -12,6 +12,7 @@ struct RuntimeHandle {
     command_tx: tokio::sync::mpsc::Sender<Command>,
     cancel: CancellationToken,
     bg_thread: Option<std::thread::JoinHandle<()>>,
+    meter_beep_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl RuntimeHandle {
@@ -21,6 +22,7 @@ impl RuntimeHandle {
 
         let (runtime, mut broadcast_rx) = Runtime::new(config.clone());
         let command_tx = runtime.command_sender();
+        let meter_beep_flag = runtime.meter_beep_flag();
 
         let ctx_clone = ctx.clone();
         let cancel_clone = cancel.clone();
@@ -59,6 +61,7 @@ impl RuntimeHandle {
             command_tx,
             cancel,
             bg_thread: Some(bg_thread),
+            meter_beep_flag,
         }
     }
 
@@ -232,7 +235,8 @@ impl eframe::App for ReadOutApp {
         let mut paused = self.state.paused;
         let mut header_action = widgets::header::HeaderAction::None;
         let header_state = widgets::header::HeaderState {
-            beep_enabled: self.config.dashboard_beep_master_enabled,
+            pc_beep_enabled: self.config.dashboard_beep_master_enabled,
+            meter_beep_enabled: self.config.beep_on_short_meter,
             log_visible: self.show_log_panel,
         };
         egui::TopBottomPanel::top("header").show(ctx, |ui| {
@@ -252,8 +256,23 @@ impl eframe::App for ReadOutApp {
             widgets::header::HeaderAction::OpenSettings => {
                 self.settings_panel.open_with(&self.config);
             }
-            widgets::header::HeaderAction::ToggleBeep => {
+            widgets::header::HeaderAction::TogglePcBeep => {
                 self.config.dashboard_beep_master_enabled = !self.config.dashboard_beep_master_enabled;
+                let path = self.config_path.clone();
+                let config = self.config.clone();
+                std::thread::spawn(move || {
+                    let _ = readout_persistence::config_store::save(&config, &path);
+                });
+            }
+            widgets::header::HeaderAction::ToggleMeterBeep => {
+                self.config.beep_on_short_meter = !self.config.beep_on_short_meter;
+                // Live-toggle via shared flag — driver sends SCPI immediately
+                if let Some(ref runtime) = self.runtime {
+                    runtime.meter_beep_flag.store(
+                        self.config.beep_on_short_meter,
+                        std::sync::atomic::Ordering::Relaxed,
+                    );
+                }
                 let path = self.config_path.clone();
                 let config = self.config.clone();
                 std::thread::spawn(move || {

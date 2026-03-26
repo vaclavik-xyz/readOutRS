@@ -30,9 +30,10 @@ impl AlarmAudio {
         {
             use rodio::source::Source;
             if let Some(ref sink) = self.sink {
-                let source = rodio::source::SineWave::new(880.0)
-                    .take_duration(std::time::Duration::from_millis(200))
-                    .amplify(volume);
+                let source = rodio::source::SineWave::new(660.0)
+                    .take_duration(std::time::Duration::from_millis(180))
+                    .amplify(volume * 0.6)
+                    .fade_in(std::time::Duration::from_millis(10));
                 sink.mixer().add(source);
             }
         }

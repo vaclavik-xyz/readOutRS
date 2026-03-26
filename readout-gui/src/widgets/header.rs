@@ -5,12 +5,14 @@ pub enum HeaderAction {
     None,
     Stop,
     OpenSettings,
-    ToggleBeep,
+    TogglePcBeep,
+    ToggleMeterBeep,
     ToggleLog,
 }
 
 pub struct HeaderState {
-    pub beep_enabled: bool,
+    pub pc_beep_enabled: bool,
+    pub meter_beep_enabled: bool,
     pub log_visible: bool,
 }
 
@@ -26,7 +28,7 @@ pub fn show(
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
 
-        // Left: title + status
+        // Left: title
         ui.strong(egui::RichText::new("readout").size(16.0));
 
         ui.separator();
@@ -60,9 +62,26 @@ pub fn show(
                 action = HeaderAction::ToggleLog;
             }
 
-            let beep_label = if header_state.beep_enabled { "🔔 Beep ✓" } else { "🔇 Beep" };
-            if ui.button(beep_label).clicked() {
-                action = HeaderAction::ToggleBeep;
+            ui.separator();
+
+            // Meter beep toggle
+            let meter_label = if header_state.meter_beep_enabled {
+                "🔔 Meter ✓"
+            } else {
+                "🔇 Meter"
+            };
+            if ui.button(meter_label).clicked() {
+                action = HeaderAction::ToggleMeterBeep;
+            }
+
+            // PC beep toggle
+            let pc_label = if header_state.pc_beep_enabled {
+                "🔊 PC ✓"
+            } else {
+                "🔇 PC"
+            };
+            if ui.button(pc_label).clicked() {
+                action = HeaderAction::TogglePcBeep;
             }
         });
     });

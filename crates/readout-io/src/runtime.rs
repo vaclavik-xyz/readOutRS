@@ -1,5 +1,7 @@
 use readout_core::types::{Command, DeviceId, RuntimeEvent};
 use readout_persistence::config::AppConfiguration;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 
@@ -20,21 +22,29 @@ pub struct Runtime {
     event_tx: broadcast::Sender<RuntimeEvent>,
     command_tx: mpsc::Sender<Command>,
     command_rx: Option<mpsc::Receiver<Command>>,
+    meter_beep_flag: Arc<AtomicBool>,
 }
 
 impl Runtime {
     pub fn new(config: AppConfiguration) -> (Self, broadcast::Receiver<RuntimeEvent>) {
         let (event_tx, event_rx) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
         let (command_tx, command_rx) = mpsc::channel(COMMAND_CHANNEL_CAPACITY);
+        let meter_beep_flag = Arc::new(AtomicBool::new(config.beep_on_short_meter));
 
         let runtime = Self {
             config,
             event_tx,
             command_tx,
             command_rx: Some(command_rx),
+            meter_beep_flag,
         };
 
         (runtime, event_rx)
+    }
+
+    /// Shared flag for live meter beep toggling from the GUI.
+    pub fn meter_beep_flag(&self) -> Arc<AtomicBool> {
+        self.meter_beep_flag.clone()
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<RuntimeEvent> {
@@ -57,6 +67,7 @@ impl Runtime {
             let use_simulator = self.config.use_simulator;
             let port = self.config.multimeter_port.clone();
             let meter_beep = self.config.beep_on_short_meter;
+            let meter_beep_flag = self.meter_beep_flag.clone();
             let alert_config = readout_core::alerts::AlertConfiguration {
                 short_threshold: self.config.short_threshold,
                 dcv_high_alarm_enabled: self.config.dcv_high_alarm_enabled,
@@ -66,7 +77,7 @@ impl Runtime {
             };
 
             Some(tokio::spawn(async move {
-                Self::run_multimeter(use_simulator, port, sample_rate, meter_beep, alert_config, event_tx, cancel).await;
+                Self::run_multimeter(use_simulator, port, sample_rate, meter_beep, meter_beep_flag, alert_config, event_tx, cancel).await;
             }))
         } else {
             None
@@ -132,6 +143,7 @@ impl Runtime {
         port: String,
         sample_rate: u32,
         meter_beep: bool,
+        meter_beep_flag: Arc<AtomicBool>,
         alert_config: readout_core::alerts::AlertConfiguration,
         event_tx: broadcast::Sender<RuntimeEvent>,
         cancel: CancellationToken,
@@ -142,23 +154,25 @@ impl Runtime {
             let mut driver = MultimeterDriver::new(transport);
             driver.set_meter_beep(meter_beep);
             driver.set_alert_config(alert_config);
-            Self::multimeter_loop(&mut driver, event_tx, cancel).await;
+            Self::multimeter_loop(&mut driver, meter_beep_flag, event_tx, cancel).await;
         } else {
             let transport = SerialTransport::new(port, MULTIMETER_BAUD_RATE);
             let mut driver = MultimeterDriver::new(transport);
             driver.set_meter_beep(meter_beep);
             driver.set_alert_config(alert_config);
-            Self::multimeter_loop(&mut driver, event_tx, cancel).await;
+            Self::multimeter_loop(&mut driver, meter_beep_flag, event_tx, cancel).await;
         }
     }
 
     async fn multimeter_loop<T: ScpiTransport>(
         driver: &mut MultimeterDriver<T>,
+        meter_beep_flag: Arc<AtomicBool>,
         event_tx: broadcast::Sender<RuntimeEvent>,
         cancel: CancellationToken,
     ) {
         let mut reconnect_delay = std::time::Duration::from_millis(500);
         let mut prev_alarm = readout_core::types::AlarmState::None;
+        let mut current_beep_state = meter_beep_flag.load(Ordering::Relaxed);
 
         loop {
             if cancel.is_cancelled() {
@@ -214,6 +228,12 @@ impl Runtime {
                                             });
                                         }
                                         prev_alarm = new_alarm;
+                                    }
+                                    // Live meter beep toggle
+                                    let desired = meter_beep_flag.load(Ordering::Relaxed);
+                                    if desired != current_beep_state {
+                                        driver.set_beeper(desired).await;
+                                        current_beep_state = desired;
                                     }
                                 }
                                 Err(e) => {
