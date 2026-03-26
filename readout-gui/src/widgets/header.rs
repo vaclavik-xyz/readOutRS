@@ -20,8 +20,9 @@ pub fn show(
             if ui.button("⏹ Stop").clicked() {
                 action = HeaderAction::Stop;
             }
-        } else if ui.button("▶ Start").clicked() {
-            action = HeaderAction::Start;
+        } else {
+            ui.add_enabled(false, egui::Button::new("▶ Start"))
+                .on_disabled_hover_text("Restart not yet implemented");
         }
 
         if ui

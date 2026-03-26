@@ -118,13 +118,14 @@ impl eframe::App for ReadOutApp {
 
         match header_action {
             widgets::header::HeaderAction::Stop => {
-                let tx = self.command_tx.clone();
-                let _ = tx.try_send(Command::Stop);
+                if let Err(e) = self.command_tx.try_send(Command::Stop) {
+                    tracing::warn!("Failed to send Stop command: {e}");
+                }
                 self.running = false;
             }
             widgets::header::HeaderAction::Start => {
-                // TODO: restart runtime (requires recreating Runtime)
-                self.running = true;
+                // Restart not yet implemented — runtime would need to be recreated.
+                // For now Start is disabled in the header when running=false.
             }
             widgets::header::HeaderAction::None => {}
         }
