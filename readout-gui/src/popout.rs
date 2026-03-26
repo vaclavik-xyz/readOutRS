@@ -15,6 +15,13 @@ impl Default for PopoutState {
     }
 }
 
+fn mm_viewport_id() -> egui::ViewportId {
+    egui::ViewportId::from_hash_of("popout_multimeter")
+}
+fn usbc_viewport_id() -> egui::ViewportId {
+    egui::ViewportId::from_hash_of("popout_usbc")
+}
+
 pub fn show_popouts(
     ctx: &egui::Context,
     state: &mut PopoutState,
@@ -22,59 +29,89 @@ pub fn show_popouts(
     usbc: Option<&DeviceMeasurement>,
 ) {
     if state.multimeter_open {
-        show_popout_window(ctx, "Multimeter", DeviceId::Multimeter, multimeter, &mut state.multimeter_open);
+        let m = multimeter.cloned();
+        ctx.show_viewport_immediate(
+            mm_viewport_id(),
+            egui::ViewportBuilder::default()
+                .with_title("Multimeter — readout")
+                .with_inner_size([350.0, 200.0])
+                .with_min_inner_size([250.0, 150.0]),
+            |ctx, _class| {
+                // Check if user closed the window via OS close button
+                if ctx.input(|i| i.viewport().close_requested()) {
+                    state.multimeter_open = false;
+                }
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    render_popout_content(ui, DeviceId::Multimeter, m.as_ref());
+                });
+            },
+        );
     }
+
     if state.usbc_open {
-        show_popout_window(ctx, "USB-C", DeviceId::UsbC, usbc, &mut state.usbc_open);
+        let m = usbc.cloned();
+        ctx.show_viewport_immediate(
+            usbc_viewport_id(),
+            egui::ViewportBuilder::default()
+                .with_title("USB-C — readout")
+                .with_inner_size([350.0, 220.0])
+                .with_min_inner_size([250.0, 150.0]),
+            |ctx, _class| {
+                if ctx.input(|i| i.viewport().close_requested()) {
+                    state.usbc_open = false;
+                }
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    render_popout_content(ui, DeviceId::UsbC, m.as_ref());
+                });
+            },
+        );
     }
 }
 
-fn show_popout_window(
-    ctx: &egui::Context,
-    title: &str,
+fn render_popout_content(
+    ui: &mut egui::Ui,
     device: DeviceId,
     measurement: Option<&DeviceMeasurement>,
-    open: &mut bool,
 ) {
-    egui::Window::new(format!("{title} — Popout"))
-        .open(open)
-        .default_size([350.0, 200.0])
-        .show(ctx, |ui| {
-            if let Some(m) = measurement {
-                let value_text = m
-                    .primary_value
-                    .map(|v| format_si(v, &m.primary_unit))
-                    .unwrap_or_else(|| format!("OL {}", m.primary_unit));
+    if let Some(m) = measurement {
+        let value_text = m
+            .primary_value
+            .map(|v| format_si(v, &m.primary_unit))
+            .unwrap_or_else(|| format!("OL {}", m.primary_unit));
 
-                ui.label(
-                    egui::RichText::new(&value_text)
-                        .size(48.0)
-                        .strong(),
-                );
+        ui.label(
+            egui::RichText::new(&value_text)
+                .size(48.0)
+                .strong(),
+        );
 
-                ui.label(
-                    egui::RichText::new(&m.mode_string)
-                        .size(16.0)
-                        .color(egui::Color32::GRAY),
-                );
+        ui.label(
+            egui::RichText::new(&m.mode_string)
+                .size(16.0)
+                .color(egui::Color32::GRAY),
+        );
 
-                if device == DeviceId::UsbC {
-                    if let Some(current) = m.secondary_value {
-                        ui.label(egui::RichText::new(format!("{current:.3} A")).size(24.0));
-                    }
-                    if let Some(power) = m.power_watts {
-                        ui.label(egui::RichText::new(format!("{power:.2} W")).size(24.0));
-                    }
-                    if let Some(mwh) = m.energy_mwh {
-                        ui.label(format!("{mwh:.0} mWh"));
-                    }
-                }
-            } else {
+        if device == DeviceId::UsbC {
+            ui.add_space(4.0);
+            if let Some(current) = m.secondary_value {
+                ui.label(egui::RichText::new(format_si(current, "A")).size(24.0));
+            }
+            if let Some(power) = m.power_watts {
+                ui.label(egui::RichText::new(format_si(power, "W")).size(24.0));
+            }
+            if let Some(mwh) = m.energy_mwh {
                 ui.label(
-                    egui::RichText::new("---")
-                        .size(48.0)
+                    egui::RichText::new(format!("{mwh:.1} mWh"))
+                        .size(14.0)
                         .color(egui::Color32::GRAY),
                 );
             }
-        });
+        }
+    } else {
+        ui.label(
+            egui::RichText::new("---")
+                .size(48.0)
+                .color(egui::Color32::GRAY),
+        );
+    }
 }
