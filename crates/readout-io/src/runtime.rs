@@ -4,11 +4,16 @@ use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::multimeter_driver::MultimeterDriver;
+use crate::serial_transport::SerialTransport;
 use crate::simulated::{SimulatedScpiTransport, SimulatedStreamingTransport};
+use crate::transport::ScpiTransport;
+use crate::transport::DeviceTransport;
 use crate::usbc_driver::UsbCDriver;
 
 const EVENT_CHANNEL_CAPACITY: usize = 1024;
 const COMMAND_CHANNEL_CAPACITY: usize = 64;
+const MULTIMETER_BAUD_RATE: u32 = 115_200;
+const USBC_BAUD_RATE: u32 = 9_600;
 
 pub struct Runtime {
     config: AppConfiguration,
@@ -49,9 +54,11 @@ impl Runtime {
             let event_tx = self.event_tx.clone();
             let cancel = device_cancel.clone();
             let sample_rate = self.config.sample_rate_hz;
+            let use_simulator = self.config.use_simulator;
+            let port = self.config.multimeter_port.clone();
 
             Some(tokio::spawn(async move {
-                Self::run_multimeter(sample_rate, event_tx, cancel).await;
+                Self::run_multimeter(use_simulator, port, sample_rate, event_tx, cancel).await;
             }))
         } else {
             None
@@ -61,9 +68,11 @@ impl Runtime {
             let event_tx = self.event_tx.clone();
             let cancel = device_cancel.clone();
             let sample_rate = self.config.sample_rate_hz;
+            let use_simulator = self.config.use_simulator;
+            let port = self.config.usbc_port.clone();
 
             Some(tokio::spawn(async move {
-                Self::run_usbc(sample_rate, event_tx, cancel).await;
+                Self::run_usbc(use_simulator, port, sample_rate, event_tx, cancel).await;
             }))
         } else {
             None
@@ -111,12 +120,29 @@ impl Runtime {
     }
 
     async fn run_multimeter(
+        use_simulator: bool,
+        port: String,
         sample_rate: u32,
         event_tx: broadcast::Sender<RuntimeEvent>,
         cancel: CancellationToken,
     ) {
-        let transport = SimulatedScpiTransport::new(sample_rate);
-        let mut driver = MultimeterDriver::new(transport);
+        tracing::info!(use_simulator, %port, sample_rate, "Starting multimeter task");
+        if use_simulator {
+            let transport = SimulatedScpiTransport::new(sample_rate);
+            let mut driver = MultimeterDriver::new(transport);
+            Self::multimeter_loop(&mut driver, event_tx, cancel).await;
+        } else {
+            let transport = SerialTransport::new(port, MULTIMETER_BAUD_RATE);
+            let mut driver = MultimeterDriver::new(transport);
+            Self::multimeter_loop(&mut driver, event_tx, cancel).await;
+        }
+    }
+
+    async fn multimeter_loop<T: ScpiTransport>(
+        driver: &mut MultimeterDriver<T>,
+        event_tx: broadcast::Sender<RuntimeEvent>,
+        cancel: CancellationToken,
+    ) {
         let mut reconnect_delay = std::time::Duration::from_millis(500);
 
         loop {
@@ -129,10 +155,10 @@ impl Runtime {
                 state: readout_core::types::ConnectionState::Connecting,
             });
 
-            if driver.connect().await.is_err() {
+            if let Err(e) = driver.connect().await {
                 let _ = event_tx.send(RuntimeEvent::Error {
                     device: DeviceId::Multimeter,
-                    message: "Failed to connect".into(),
+                    message: format!("Failed to connect: {e}"),
                 });
             } else {
                 let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
@@ -210,12 +236,29 @@ impl Runtime {
     }
 
     async fn run_usbc(
+        use_simulator: bool,
+        port: String,
         sample_rate: u32,
         event_tx: broadcast::Sender<RuntimeEvent>,
         cancel: CancellationToken,
     ) {
-        let transport = SimulatedStreamingTransport::new(sample_rate);
-        let mut driver = UsbCDriver::new(transport);
+        tracing::info!(use_simulator, %port, sample_rate, "Starting USB-C task");
+        if use_simulator {
+            let transport = SimulatedStreamingTransport::new(sample_rate);
+            let mut driver = UsbCDriver::new(transport);
+            Self::usbc_loop(&mut driver, event_tx, cancel).await;
+        } else {
+            let transport = SerialTransport::new(port, USBC_BAUD_RATE);
+            let mut driver = UsbCDriver::new(transport);
+            Self::usbc_loop(&mut driver, event_tx, cancel).await;
+        }
+    }
+
+    async fn usbc_loop<T: DeviceTransport>(
+        driver: &mut UsbCDriver<T>,
+        event_tx: broadcast::Sender<RuntimeEvent>,
+        cancel: CancellationToken,
+    ) {
         let mut reconnect_delay = std::time::Duration::from_millis(500);
 
         loop {
@@ -228,10 +271,10 @@ impl Runtime {
                 state: readout_core::types::ConnectionState::Connecting,
             });
 
-            if driver.connect().await.is_err() {
+            if let Err(e) = driver.connect().await {
                 let _ = event_tx.send(RuntimeEvent::Error {
                     device: DeviceId::UsbC,
-                    message: "Failed to connect".into(),
+                    message: format!("Failed to connect: {e}"),
                 });
             } else {
                 let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
