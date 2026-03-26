@@ -18,7 +18,7 @@ async fn soak_smoke_simulated() {
     let (runtime, mut event_rx) = Runtime::new(config);
 
     let cancel_clone = cancel.clone();
-    tokio::spawn(async move {
+    let runtime_handle = tokio::spawn(async move {
         runtime.run(cancel_clone).await;
     });
 
@@ -51,13 +51,21 @@ async fn soak_smoke_simulated() {
             }
             Ok(Err(_)) => break,
             Err(_) => {
+                // Timeout — cancel runtime before panicking
+                cancel.cancel();
+                let _ = tokio::time::timeout(Duration::from_secs(5), runtime_handle).await;
                 panic!("soak: timed out waiting for events");
             }
         }
     }
 
     let elapsed = start.elapsed();
+
+    // Graceful shutdown — cancel and wait for runtime to finish
     cancel.cancel();
+    runtime_handle
+        .await
+        .expect("runtime task panicked during soak test");
 
     // Report
     let report = serde_json::json!({
@@ -68,13 +76,25 @@ async fn soak_smoke_simulated() {
         "mm_fps": mm_count as f64 / elapsed.as_secs_f64(),
         "usbc_fps": usbc_count as f64 / elapsed.as_secs_f64(),
     });
-    eprintln!("soak report: {}", serde_json::to_string_pretty(&report).unwrap());
+    eprintln!(
+        "soak report: {}",
+        serde_json::to_string_pretty(&report).unwrap()
+    );
 
     // Write report to /tmp for CI artifact
-    let _ = std::fs::write("/tmp/soak-report.json", serde_json::to_string_pretty(&report).unwrap());
+    let _ = std::fs::write(
+        "/tmp/soak-report.json",
+        serde_json::to_string_pretty(&report).unwrap(),
+    );
 
     // Assertions
-    assert!(mm_count >= target_frames, "multimeter frames: {mm_count} < {target_frames}");
-    assert!(usbc_count >= target_frames, "usbc frames: {usbc_count} < {target_frames}");
+    assert!(
+        mm_count >= target_frames,
+        "multimeter frames: {mm_count} < {target_frames}"
+    );
+    assert!(
+        usbc_count >= target_frames,
+        "usbc frames: {usbc_count} < {target_frames}"
+    );
     assert!(error_count < 10, "too many errors: {error_count}");
 }
