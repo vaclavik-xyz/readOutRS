@@ -82,11 +82,14 @@ pub struct ReadOutApp {
     chart_state: widgets::chart::ChartState,
     settings_panel: widgets::settings::SettingsPanel,
     wizard: widgets::first_run_wizard::FirstRunWizard,
+    popout_state: crate::popout::PopoutState,
+    audio: crate::audio::AlarmAudio,
     running: bool,
     show_log_panel: bool,
     config: AppConfiguration,
     config_path: PathBuf,
     ctx: egui::Context,
+    theme_applied: bool,
 }
 
 impl ReadOutApp {
@@ -109,11 +112,14 @@ impl ReadOutApp {
             chart_state: widgets::chart::ChartState::default(),
             settings_panel: widgets::settings::SettingsPanel::new(&config),
             wizard: widgets::first_run_wizard::FirstRunWizard::new(&config, first_run),
+            popout_state: crate::popout::PopoutState::default(),
+            audio: crate::audio::AlarmAudio::new(),
             running: !first_run,
             show_log_panel: true,
             config,
             config_path,
             ctx: ctx.clone(),
+            theme_applied: false,
         }
     }
 
@@ -137,20 +143,48 @@ impl ReadOutApp {
             if i.modifiers.command && i.key_pressed(egui::Key::Comma) {
                 self.settings_panel.open_with(&self.config);
             }
+            // Ctrl+1 / Cmd+1: toggle multimeter popout
+            if i.modifiers.command && i.key_pressed(egui::Key::Num1) {
+                self.popout_state.multimeter_open = !self.popout_state.multimeter_open;
+            }
+            // Ctrl+2 / Cmd+2: toggle USB-C popout
+            if i.modifiers.command && i.key_pressed(egui::Key::Num2) {
+                self.popout_state.usbc_open = !self.popout_state.usbc_open;
+            }
         });
     }
 }
 
 impl eframe::App for ReadOutApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Apply theme once
+        if !self.theme_applied {
+            crate::theme::apply_theme(ctx, self.config.dashboard_theme);
+            self.theme_applied = true;
+        }
+
         // Drain events from runtime
         if let Some(ref runtime) = self.runtime {
             while let Ok(event) = runtime.event_rx.try_recv() {
+                // Check for alarm events to trigger audio
+                if let RuntimeEvent::AlarmTriggered { .. } = &event {
+                    if self.config.beep_on_alarm && self.config.dashboard_beep_master_enabled {
+                        self.audio.beep(self.config.pc_beep_volume as f32);
+                    }
+                }
                 self.state.handle_event(event);
             }
         }
 
         self.handle_keyboard_shortcuts(ctx);
+
+        // Popout windows
+        crate::popout::show_popouts(
+            ctx,
+            &mut self.popout_state,
+            self.state.latest_measurement.get(&DeviceId::Multimeter),
+            self.state.latest_measurement.get(&DeviceId::UsbC),
+        );
 
         // First-run wizard — starts runtime when user finishes
         if let Some(new_config) = self.wizard.show(ctx) {

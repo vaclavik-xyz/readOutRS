@@ -1,4 +1,7 @@
 mod app;
+mod audio;
+mod popout;
+mod theme;
 mod widgets;
 
 use clap::Parser;
