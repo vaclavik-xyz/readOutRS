@@ -1,4 +1,5 @@
-use crossterm::event::{self, Event, KeyCode, KeyModifiers};
+use crossterm::event::{Event, EventStream, KeyCode, KeyModifiers};
+use futures::StreamExt;
 use readout_core::dashboard_state::DashboardState;
 use readout_core::types::{Command, RuntimeEvent};
 use readout_io::runtime::Runtime;
@@ -42,37 +43,31 @@ impl TuiApp {
         use ratatui::widgets::{Block, Borders, Paragraph};
 
         let chunks = Layout::vertical([
-            Constraint::Length(3), // header
-            Constraint::Min(5),   // body
-            Constraint::Length(3), // status
+            Constraint::Length(3),
+            Constraint::Min(5),
+            Constraint::Length(3),
         ])
         .split(frame.area());
 
-        // Header
         let header = Paragraph::new(format!(
-            " readout-tui | {} | {}",
+            " readout-tui | {} | MM: {:?} | USB-C: {:?}",
             if self.state.paused {
                 "PAUSED"
             } else {
                 "RUNNING"
             },
-            format!(
-                "MM: {:?} | USB-C: {:?}",
-                self.state
-                    .connection_for(readout_core::types::DeviceId::Multimeter),
-                self.state
-                    .connection_for(readout_core::types::DeviceId::UsbC),
-            ),
+            self.state
+                .connection_for(readout_core::types::DeviceId::Multimeter),
+            self.state
+                .connection_for(readout_core::types::DeviceId::UsbC),
         ))
         .block(Block::default().borders(Borders::ALL).title(" readout "));
         frame.render_widget(header, chunks[0]);
 
-        // Body placeholder
         let body = Paragraph::new("Dashboard widgets — Task 23")
             .block(Block::default().borders(Borders::ALL));
         frame.render_widget(body, chunks[1]);
 
-        // Status
         let status = Paragraph::new(format!(
             " Measurements: {} | Errors: {} | [q]uit [p]ause",
             self.state.health.measurement_count, self.state.health.error_count,
@@ -82,16 +77,36 @@ impl TuiApp {
     }
 }
 
+/// RAII guard that restores terminal state on drop.
+struct TerminalGuard;
+
+impl TerminalGuard {
+    fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        crossterm::terminal::enable_raw_mode()?;
+        crossterm::execute!(
+            std::io::stdout(),
+            crossterm::terminal::EnterAlternateScreen,
+            crossterm::event::EnableMouseCapture
+        )?;
+        Ok(Self)
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        let _ = crossterm::terminal::disable_raw_mode();
+        let _ = crossterm::execute!(
+            std::io::stdout(),
+            crossterm::terminal::LeaveAlternateScreen,
+            crossterm::event::DisableMouseCapture
+        );
+    }
+}
+
 pub async fn run(config: AppConfiguration) -> Result<(), Box<dyn std::error::Error>> {
-    // Setup terminal
-    crossterm::terminal::enable_raw_mode()?;
-    let mut stdout = std::io::stdout();
-    crossterm::execute!(
-        stdout,
-        crossterm::terminal::EnterAlternateScreen,
-        crossterm::event::EnableMouseCapture
-    )?;
-    let backend = ratatui::backend::CrosstermBackend::new(stdout);
+    let _guard = TerminalGuard::new()?;
+
+    let backend = ratatui::backend::CrosstermBackend::new(std::io::stdout());
     let mut terminal = ratatui::Terminal::new(backend)?;
 
     let cancel = CancellationToken::new();
@@ -99,12 +114,13 @@ pub async fn run(config: AppConfiguration) -> Result<(), Box<dyn std::error::Err
     let _command_tx = runtime.command_sender();
 
     let runtime_cancel = cancel.clone();
-    tokio::spawn(async move {
+    let runtime_handle = tokio::spawn(async move {
         runtime.run(runtime_cancel).await;
     });
 
     let mut app = TuiApp::new(config);
-    let mut render_interval = tokio::time::interval(Duration::from_millis(50)); // ~20 FPS
+    let mut render_interval = tokio::time::interval(Duration::from_millis(50));
+    let mut event_stream = EventStream::new();
 
     loop {
         // Drain runtime events
@@ -118,36 +134,27 @@ pub async fn run(config: AppConfiguration) -> Result<(), Box<dyn std::error::Err
             }
         }
 
-        // Draw
         terminal.draw(|frame| app.draw(frame))?;
 
         if app.should_quit {
             break;
         }
 
-        // Wait for next event or render tick
         tokio::select! {
             _ = cancel.cancelled() => break,
-            _ = render_interval.tick() => {
-                // Check for keyboard input (non-blocking)
-                if event::poll(Duration::from_millis(0))? {
-                    if let Event::Key(key) = event::read()? {
-                        app.handle_key(key.code, key.modifiers);
-                    }
+            _ = render_interval.tick() => {}
+            event = event_stream.next() => {
+                if let Some(Ok(Event::Key(key))) = event {
+                    app.handle_key(key.code, key.modifiers);
                 }
             }
         }
     }
 
-    // Cleanup
+    // Graceful shutdown: cancel runtime and wait for it
     cancel.cancel();
-    crossterm::terminal::disable_raw_mode()?;
-    crossterm::execute!(
-        terminal.backend_mut(),
-        crossterm::terminal::LeaveAlternateScreen,
-        crossterm::event::DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
+    let _ = tokio::time::timeout(Duration::from_secs(5), runtime_handle).await;
+    // TerminalGuard::drop restores terminal
 
     Ok(())
 }
