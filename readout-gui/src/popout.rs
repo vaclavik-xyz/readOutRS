@@ -35,7 +35,8 @@ pub fn show_popouts(
             egui::ViewportBuilder::default()
                 .with_title("Multimeter — readout")
                 .with_inner_size([350.0, 200.0])
-                .with_min_inner_size([250.0, 150.0]),
+                .with_min_inner_size([250.0, 150.0])
+                .with_always_on_top(),
             |ctx, _class| {
                 // Check if user closed the window via OS close button
                 if ctx.input(|i| i.viewport().close_requested()) {
@@ -55,7 +56,8 @@ pub fn show_popouts(
             egui::ViewportBuilder::default()
                 .with_title("USB-C — readout")
                 .with_inner_size([350.0, 220.0])
-                .with_min_inner_size([250.0, 150.0]),
+                .with_min_inner_size([250.0, 150.0])
+                .with_always_on_top(),
             |ctx, _class| {
                 if ctx.input(|i| i.viewport().close_requested()) {
                     state.usbc_open = false;
