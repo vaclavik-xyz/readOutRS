@@ -96,35 +96,31 @@ pub fn render(
         );
     }
 
-    // Auto-scale Y axis
-    let all_values: Vec<f64> = chart_state
-        .mm_buf
-        .iter()
-        .chain(chart_state.usbc_buf.iter())
-        .map(|(_, v)| *v)
-        .collect();
-
-    let (y_min, y_max) = if all_values.is_empty() {
-        (0.0, 1.0)
-    } else {
-        let min = all_values.iter().cloned().fold(f64::INFINITY, f64::min);
-        let max = all_values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        let margin = (max - min).max(0.1) * 0.1;
-        (min - margin, max + margin)
+    // Auto-scale Y axis (no allocations — fold over existing buffers)
+    let combined = chart_state.mm_buf.iter().chain(chart_state.usbc_buf.iter());
+    let (y_min, y_max) = {
+        let (lo, hi) = combined.clone().map(|(_, v)| *v).fold(
+            (f64::INFINITY, f64::NEG_INFINITY),
+            |(lo, hi), v| (lo.min(v), hi.max(v)),
+        );
+        if lo > hi {
+            (0.0, 1.0)
+        } else {
+            let margin = (hi - lo).max(0.1) * 0.1;
+            (lo - margin, hi + margin)
+        }
     };
 
-    let x_bounds = if chart_state.mm_buf.is_empty() && chart_state.usbc_buf.is_empty() {
-        [0.0, 1.0]
-    } else {
-        let all_times: Vec<f64> = chart_state
-            .mm_buf
-            .iter()
-            .chain(chart_state.usbc_buf.iter())
-            .map(|(t, _)| *t)
-            .collect();
-        let t_min = all_times.iter().cloned().fold(f64::INFINITY, f64::min);
-        let t_max = all_times.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        [t_min, t_max.max(t_min + 1.0)]
+    let x_bounds = {
+        let (t_lo, t_hi) = combined.map(|(t, _)| *t).fold(
+            (f64::INFINITY, f64::NEG_INFINITY),
+            |(lo, hi), t| (lo.min(t), hi.max(t)),
+        );
+        if t_lo > t_hi {
+            [0.0, 1.0]
+        } else {
+            [t_lo, t_hi.max(t_lo + 1.0)]
+        }
     };
 
     let chart = Chart::new(datasets)
