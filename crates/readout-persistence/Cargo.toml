@@ -1,0 +1,12 @@
+[package]
+name = "readout-persistence"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+readout-core = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+dirs = "5"

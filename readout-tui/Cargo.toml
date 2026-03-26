@@ -1,0 +1,20 @@
+[package]
+name = "readout-tui"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+readout-core = { workspace = true }
+readout-io = { workspace = true }
+readout-persistence = { workspace = true }
+tokio = { workspace = true }
+ratatui = "0.30"
+futures = "0.3"
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+clap = { workspace = true }
+rodio = { version = "0.22", optional = true }
+
+[features]
+default = ["audio"]
+audio = ["rodio"]
