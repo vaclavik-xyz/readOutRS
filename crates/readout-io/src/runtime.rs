@@ -44,26 +44,30 @@ impl Runtime {
         let mut command_rx = self.command_rx.take().expect("run called only once");
         let device_cancel = CancellationToken::new();
 
-        // Spawn device tasks
-        if self.config.multimeter_enabled {
+        // Spawn device tasks and retain handles for join
+        let mm_handle = if self.config.multimeter_enabled {
             let event_tx = self.event_tx.clone();
             let cancel = device_cancel.clone();
             let sample_rate = self.config.sample_rate_hz;
 
-            tokio::spawn(async move {
+            Some(tokio::spawn(async move {
                 Self::run_multimeter(sample_rate, event_tx, cancel).await;
-            });
-        }
+            }))
+        } else {
+            None
+        };
 
-        if self.config.usbc_enabled {
+        let usbc_handle = if self.config.usbc_enabled {
             let event_tx = self.event_tx.clone();
             let cancel = device_cancel.clone();
             let sample_rate = self.config.sample_rate_hz;
 
-            tokio::spawn(async move {
+            Some(tokio::spawn(async move {
                 Self::run_usbc(sample_rate, event_tx, cancel).await;
-            });
-        }
+            }))
+        } else {
+            None
+        };
 
         // Command loop
         loop {
@@ -83,19 +87,23 @@ impl Runtime {
                                 message: "Port rescan requested".into(),
                             });
                         }
-                        Some(_) => {
-                            // Other commands handled here as features are added
+                        Some(other) => {
+                            tracing::debug!(?other, "command not yet handled");
                         }
                     }
                 }
             }
         }
 
-        // Graceful shutdown
+        // Graceful shutdown: cancel device tasks and join them
         device_cancel.cancel();
 
-        // Give device tasks time to clean up
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        if let Some(h) = mm_handle {
+            let _ = h.await;
+        }
+        if let Some(h) = usbc_handle {
+            let _ = h.await;
+        }
     }
 
     async fn run_multimeter(
@@ -124,6 +132,7 @@ impl Runtime {
             state: readout_core::types::ConnectionState::Connected,
         });
 
+        let mut consecutive_errors: u32 = 0;
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => {
@@ -137,16 +146,29 @@ impl Runtime {
                 result = driver.poll() => {
                     match result {
                         Ok(measurement) => {
+                            consecutive_errors = 0;
                             let _ = event_tx.send(RuntimeEvent::Measurement {
                                 device: DeviceId::Multimeter,
                                 value: measurement,
                             });
                         }
                         Err(e) => {
+                            consecutive_errors += 1;
                             let _ = event_tx.send(RuntimeEvent::Error {
                                 device: DeviceId::Multimeter,
                                 message: e.to_string(),
                             });
+                            if consecutive_errors >= 5 {
+                                tracing::warn!("Multimeter: too many consecutive errors, disconnecting");
+                                driver.close().await;
+                                let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
+                                    device: DeviceId::Multimeter,
+                                    state: readout_core::types::ConnectionState::Disconnected,
+                                });
+                                return;
+                            }
+                            // Backoff before retry
+                            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                         }
                     }
                 }
@@ -180,6 +202,7 @@ impl Runtime {
             state: readout_core::types::ConnectionState::Connected,
         });
 
+        let mut consecutive_errors: u32 = 0;
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => {
@@ -193,16 +216,29 @@ impl Runtime {
                 result = driver.read_measurement() => {
                     match result {
                         Ok(measurement) => {
+                            consecutive_errors = 0;
                             let _ = event_tx.send(RuntimeEvent::Measurement {
                                 device: DeviceId::UsbC,
                                 value: measurement,
                             });
                         }
                         Err(e) => {
+                            consecutive_errors += 1;
                             let _ = event_tx.send(RuntimeEvent::Error {
                                 device: DeviceId::UsbC,
                                 message: e.to_string(),
                             });
+                            if consecutive_errors >= 5 {
+                                tracing::warn!("USB-C: too many consecutive errors, disconnecting");
+                                driver.close().await;
+                                let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
+                                    device: DeviceId::UsbC,
+                                    state: readout_core::types::ConnectionState::Disconnected,
+                                });
+                                return;
+                            }
+                            // Backoff before retry
+                            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                         }
                     }
                 }
