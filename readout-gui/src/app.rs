@@ -26,10 +26,11 @@ impl ReadOutApp {
             let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
             rt.block_on(async move {
                 let runtime_cancel = cancel_clone.clone();
-                tokio::spawn(async move {
+                let runtime_handle = tokio::spawn(async move {
                     runtime.run(runtime_cancel).await;
                 });
 
+                // Forward events until cancelled or channel closed
                 loop {
                     tokio::select! {
                         _ = cancel_clone.cancelled() => break,
@@ -47,6 +48,9 @@ impl ReadOutApp {
                         }
                     }
                 }
+
+                // Wait for runtime graceful shutdown before tokio runtime drops
+                let _ = runtime_handle.await;
             });
         });
 
