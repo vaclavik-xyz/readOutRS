@@ -61,10 +61,11 @@ async fn soak_smoke_simulated() {
 
     let elapsed = start.elapsed();
 
-    // Graceful shutdown — cancel and wait for runtime to finish
+    // Graceful shutdown — cancel and wait for runtime with timeout
     cancel.cancel();
-    runtime_handle
+    tokio::time::timeout(Duration::from_secs(10), runtime_handle)
         .await
+        .expect("runtime did not shut down within 10s")
         .expect("runtime task panicked during soak test");
 
     // Report
