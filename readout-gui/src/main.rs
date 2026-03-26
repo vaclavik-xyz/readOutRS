@@ -45,7 +45,7 @@ fn main() {
         "readout",
         options,
         Box::new(move |cc| {
-            Ok(Box::new(app::ReadOutApp::new(config, &cc.egui_ctx)))
+            Ok(Box::new(app::ReadOutApp::new(config, config_path, &cc.egui_ctx)))
         }),
     )
     .expect("eframe run");

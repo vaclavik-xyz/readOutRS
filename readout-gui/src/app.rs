@@ -3,6 +3,8 @@ use readout_core::dashboard_state::DashboardState;
 use readout_core::types::{Command, DeviceId, RuntimeEvent};
 use readout_io::runtime::Runtime;
 use readout_persistence::config::AppConfiguration;
+use readout_persistence::config_store;
+use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
 
 pub struct ReadOutApp {
@@ -16,10 +18,11 @@ pub struct ReadOutApp {
     running: bool,
     show_log_panel: bool,
     config: AppConfiguration,
+    config_path: PathBuf,
 }
 
 impl ReadOutApp {
-    pub fn new(config: AppConfiguration, ctx: &egui::Context) -> Self {
+    pub fn new(config: AppConfiguration, config_path: PathBuf, ctx: &egui::Context) -> Self {
         let (std_tx, std_rx) = std::sync::mpsc::channel();
         let cancel = CancellationToken::new();
 
@@ -69,6 +72,7 @@ impl ReadOutApp {
             running: true,
             show_log_panel: true,
             config,
+            config_path,
         }
     }
 
@@ -115,8 +119,10 @@ impl eframe::App for ReadOutApp {
 
         // Settings window (floating)
         if let Some(new_config) = self.settings_panel.show(ctx) {
+            if let Err(e) = config_store::save(&new_config, &self.config_path) {
+                tracing::error!("Failed to save config: {e:?}");
+            }
             self.config = new_config;
-            // TODO: send Command::UpdateConfig when implemented
         }
 
         // Periodic repaint for status updates

@@ -177,7 +177,7 @@ impl SettingsPanel {
                 });
             });
 
-        self.open = open;
+        self.open &= open;
         result
     }
 }
