@@ -1,5 +1,6 @@
 pub mod alerts;
 pub mod chart_pipeline;
+pub mod dashboard_state;
 pub mod energy_accumulator;
 pub mod measurement_mode;
 pub mod multimeter_parser;

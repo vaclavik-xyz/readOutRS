@@ -1,4 +1,6 @@
-use readout_core::types::{Command, RuntimeEvent};
+use crate::widgets;
+use readout_core::dashboard_state::DashboardState;
+use readout_core::types::{Command, DeviceId, RuntimeEvent};
 use readout_io::runtime::Runtime;
 use readout_persistence::config::AppConfiguration;
 use tokio_util::sync::CancellationToken;
@@ -8,6 +10,9 @@ pub struct ReadOutApp {
     command_tx: tokio::sync::mpsc::Sender<Command>,
     cancel: CancellationToken,
     bg_thread: Option<std::thread::JoinHandle<()>>,
+    state: DashboardState,
+    running: bool,
+    show_log_panel: bool,
     config: AppConfiguration,
 }
 
@@ -19,7 +24,6 @@ impl ReadOutApp {
         let (runtime, mut broadcast_rx) = Runtime::new(config.clone());
         let command_tx = runtime.command_sender();
 
-        // Bridge: tokio broadcast → std::sync::mpsc → egui
         let ctx_clone = ctx.clone();
         let cancel_clone = cancel.clone();
         let bg_thread = std::thread::spawn(move || {
@@ -30,7 +34,6 @@ impl ReadOutApp {
                     runtime.run(runtime_cancel).await;
                 });
 
-                // Forward events until cancelled or channel closed
                 loop {
                     tokio::select! {
                         _ = cancel_clone.cancelled() => break,
@@ -49,7 +52,6 @@ impl ReadOutApp {
                     }
                 }
 
-                // Wait for runtime graceful shutdown before tokio runtime drops
                 let _ = runtime_handle.await;
             });
         });
@@ -59,6 +61,9 @@ impl ReadOutApp {
             command_tx,
             cancel,
             bg_thread: Some(bg_thread),
+            state: DashboardState::new(),
+            running: true,
+            show_log_panel: true,
             config,
         }
     }
@@ -66,6 +71,19 @@ impl ReadOutApp {
     #[allow(dead_code)]
     pub fn command_sender(&self) -> tokio::sync::mpsc::Sender<Command> {
         self.command_tx.clone()
+    }
+
+    fn handle_keyboard_shortcuts(&mut self, ctx: &egui::Context) {
+        ctx.input(|i| {
+            // Ctrl+P / Cmd+P: toggle pause
+            if i.modifiers.command && i.key_pressed(egui::Key::P) {
+                self.state.paused = !self.state.paused;
+            }
+            // Ctrl+L / Cmd+L: toggle log panel
+            if i.modifiers.command && i.key_pressed(egui::Key::L) {
+                self.show_log_panel = !self.show_log_panel;
+            }
+        });
     }
 }
 
@@ -80,22 +98,65 @@ impl Drop for ReadOutApp {
 
 impl eframe::App for ReadOutApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        while let Ok(_event) = self.event_rx.try_recv() {
-            // TODO: dispatch to DashboardState in Task 17
+        // Drain events
+        while let Ok(event) = self.event_rx.try_recv() {
+            self.state.handle_event(event);
         }
 
-        // Repaint at ~4 Hz for status updates; data-driven repaints come from bridge thread
+        self.handle_keyboard_shortcuts(ctx);
+
+        // Periodic repaint for status updates
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
 
+        // --- Header ---
+        let mut paused = self.state.paused;
+        egui::TopBottomPanel::top("header").show(ctx, |ui| {
+            widgets::header::show(ui, &self.state, &mut self.running, &mut paused);
+        });
+        self.state.paused = paused;
+
+        // --- Status strip ---
+        egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
+            widgets::status_strip::show(ui, &self.state);
+        });
+
+        // --- Log panel (collapsible) ---
+        if self.show_log_panel {
+            egui::TopBottomPanel::bottom("log_panel")
+                .resizable(true)
+                .min_height(60.0)
+                .default_height(150.0)
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.strong("Log");
+                        if ui.small_button("✕").clicked() {
+                            self.show_log_panel = false;
+                        }
+                    });
+                    ui.separator();
+                    widgets::log_panel::show(ui, &self.state);
+                });
+        }
+
+        // --- Central: device cards ---
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("readout-gui");
-            ui.label(format!(
-                "Simulator: {} | Multimeter: {} | USB-C: {}",
-                self.config.use_simulator,
-                self.config.multimeter_enabled,
-                self.config.usbc_enabled,
-            ));
-            ui.label("Dashboard coming in next task...");
+            ui.columns(2, |cols| {
+                widgets::device_card::show(
+                    &mut cols[0],
+                    DeviceId::Multimeter,
+                    self.state.latest_measurement.get(&DeviceId::Multimeter),
+                    self.state.alarm_for(DeviceId::Multimeter),
+                );
+                widgets::device_card::show(
+                    &mut cols[1],
+                    DeviceId::UsbC,
+                    self.state.latest_measurement.get(&DeviceId::UsbC),
+                    self.state.alarm_for(DeviceId::UsbC),
+                );
+            });
+
+            ui.separator();
+            ui.colored_label(egui::Color32::GRAY, "Chart placeholder — Task 18");
         });
     }
 }
