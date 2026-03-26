@@ -147,6 +147,17 @@ impl SettingsPanel {
                         });
                     });
 
+                    // --- Appearance ---
+                    ui.collapsing("Appearance", |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Theme:");
+                            use readout_persistence::config::DashboardTheme;
+                            ui.selectable_value(&mut self.draft.dashboard_theme, DashboardTheme::System, "System");
+                            ui.selectable_value(&mut self.draft.dashboard_theme, DashboardTheme::Dark, "Dark");
+                            ui.selectable_value(&mut self.draft.dashboard_theme, DashboardTheme::Light, "Light");
+                        });
+                    });
+
                     // --- Audio ---
                     ui.collapsing("Audio", |ui| {
                         ui.checkbox(
