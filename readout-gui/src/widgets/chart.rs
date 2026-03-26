@@ -12,12 +12,16 @@ const RANGE_OPTIONS: &[(Duration, &str)] = &[
 
 pub struct ChartState {
     pub selected_range_idx: usize,
+    mm_buf: Vec<[f64; 2]>,
+    usbc_buf: Vec<[f64; 2]>,
 }
 
 impl Default for ChartState {
     fn default() -> Self {
         Self {
             selected_range_idx: 0,
+            mm_buf: Vec::new(),
+            usbc_buf: Vec::new(),
         }
     }
 }
@@ -41,25 +45,22 @@ pub fn show(
     let (range, _) = RANGE_OPTIONS[chart_state.selected_range_idx];
     let target_points = (ui.available_width() as usize).max(100);
 
-    let mm_points = pipelines
-        .get_mut(&DeviceId::Multimeter)
-        .map(|p| p.query(range, target_points))
-        .unwrap_or_default();
+    // Reuse buffers to avoid per-frame allocations
+    chart_state.mm_buf.clear();
+    if let Some(pipeline) = pipelines.get_mut(&DeviceId::Multimeter) {
+        let points = pipeline.query(range, target_points);
+        chart_state
+            .mm_buf
+            .extend(points.iter().map(|(t, v)| [t.as_secs_f64(), *v]));
+    }
 
-    let usbc_points = pipelines
-        .get_mut(&DeviceId::UsbC)
-        .map(|p| p.query(range, target_points))
-        .unwrap_or_default();
-
-    let mm_plot_points: Vec<[f64; 2]> = mm_points
-        .iter()
-        .map(|(t, v)| [t.as_secs_f64(), *v])
-        .collect();
-
-    let usbc_plot_points: Vec<[f64; 2]> = usbc_points
-        .iter()
-        .map(|(t, v)| [t.as_secs_f64(), *v])
-        .collect();
+    chart_state.usbc_buf.clear();
+    if let Some(pipeline) = pipelines.get_mut(&DeviceId::UsbC) {
+        let points = pipeline.query(range, target_points);
+        chart_state
+            .usbc_buf
+            .extend(points.iter().map(|(t, v)| [t.as_secs_f64(), *v]));
+    }
 
     egui_plot::Plot::new("main_chart")
         .height(200.0)
@@ -67,16 +68,22 @@ pub fn show(
         .allow_zoom(false)
         .allow_scroll(false)
         .show(ui, |plot_ui| {
-            if !mm_plot_points.is_empty() {
+            if !chart_state.mm_buf.is_empty() {
                 plot_ui.line(
-                    egui_plot::Line::new("Multimeter", mm_plot_points)
-                        .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(100, 180, 255))),
+                    egui_plot::Line::new("Multimeter", chart_state.mm_buf.clone())
+                        .stroke(egui::Stroke::new(
+                            1.5,
+                            egui::Color32::from_rgb(100, 180, 255),
+                        )),
                 );
             }
-            if !usbc_plot_points.is_empty() {
+            if !chart_state.usbc_buf.is_empty() {
                 plot_ui.line(
-                    egui_plot::Line::new("USB-C", usbc_plot_points)
-                        .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 160, 80))),
+                    egui_plot::Line::new("USB-C", chart_state.usbc_buf.clone())
+                        .stroke(egui::Stroke::new(
+                            1.5,
+                            egui::Color32::from_rgb(255, 160, 80),
+                        )),
                 );
             }
         });
