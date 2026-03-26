@@ -216,9 +216,9 @@ pub async fn run(config: AppConfiguration, config_path: std::path::PathBuf) -> R
         }
     }
 
-    // Wait for pending config save before shutdown
+    // Wait for pending config save before shutdown (with timeout)
     if let Some(h) = save_handle.take() {
-        let _ = h.await;
+        let _ = tokio::time::timeout(Duration::from_secs(5), h).await;
     }
 
     cancel.cancel();
