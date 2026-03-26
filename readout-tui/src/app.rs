@@ -36,19 +36,16 @@ impl TuiApp {
         self.state.handle_event(event);
     }
 
-    pub fn handle_key(&mut self, key: KeyCode, modifiers: KeyModifiers) {
-        // Settings screen handles its own keys when active
+    /// Returns Some(config) when settings were saved (needs async persist).
+    pub fn handle_key(&mut self, key: KeyCode, modifiers: KeyModifiers) -> Option<AppConfiguration> {
         if self.settings_screen.active {
-            match self.settings_screen.handle_key(key) {
+            return match self.settings_screen.handle_key(key) {
                 widgets::settings::SettingsAction::Save(new_config) => {
-                    if let Err(e) = readout_persistence::config_store::save(&new_config, &self.config_path) {
-                        tracing::error!("Failed to save config: {e:?}");
-                    }
-                    self.config = new_config;
+                    self.config = new_config.clone();
+                    Some(new_config)
                 }
-                widgets::settings::SettingsAction::None => {}
-            }
-            return;
+                widgets::settings::SettingsAction::None => None,
+            };
         }
 
         match key {
@@ -62,6 +59,7 @@ impl TuiApp {
             KeyCode::Left => self.chart_state.prev_range(),
             _ => {}
         }
+        None
     }
 
     pub fn draw(&mut self, frame: &mut Frame) {
@@ -196,7 +194,16 @@ pub async fn run(config: AppConfiguration, config_path: std::path::PathBuf) -> R
             _ = render_interval.tick() => {}
             event = event_stream.next() => {
                 match event {
-                    Some(Ok(Event::Key(key))) => app.handle_key(key.code, key.modifiers),
+                    Some(Ok(Event::Key(key))) => {
+                        if let Some(new_config) = app.handle_key(key.code, key.modifiers) {
+                            let path = app.config_path.clone();
+                            tokio::task::spawn_blocking(move || {
+                                if let Err(e) = readout_persistence::config_store::save(&new_config, &path) {
+                                    tracing::error!("Failed to save config: {e:?}");
+                                }
+                            });
+                        }
+                    }
                     Some(Ok(_)) => {}
                     Some(Err(e)) => {
                         tracing::warn!("terminal event error: {e}");

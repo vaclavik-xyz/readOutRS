@@ -108,7 +108,7 @@ impl TuiSettingsScreen {
             KeyCode::Enter => {
                 if self.editing {
                     // Apply edit to draft
-                    self.apply_field_to_draft();
+                    self.apply_field_at(self.selected);
                     self.editing = false;
                 } else {
                     // Toggle bools immediately, start editing for others
@@ -143,8 +143,8 @@ impl TuiSettingsScreen {
         }
     }
 
-    fn apply_field_to_draft(&mut self) {
-        let field = &self.fields[self.selected];
+    fn apply_field_at(&mut self, index: usize) {
+        let field = &self.fields[index];
         match field.field_kind {
             FieldKind::Bool(accessor) => {
                 let val = accessor(&mut self.draft);
@@ -165,8 +165,7 @@ impl TuiSettingsScreen {
 
     fn apply_all_fields_to_draft(&mut self) {
         for i in 0..self.fields.len() {
-            self.selected = i;
-            self.apply_field_to_draft();
+            self.apply_field_at(i);
         }
     }
 
