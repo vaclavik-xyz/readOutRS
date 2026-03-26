@@ -12,6 +12,7 @@ pub struct ReadOutApp {
     bg_thread: Option<std::thread::JoinHandle<()>>,
     state: DashboardState,
     chart_state: widgets::chart::ChartState,
+    settings_panel: widgets::settings::SettingsPanel,
     running: bool,
     show_log_panel: bool,
     config: AppConfiguration,
@@ -64,6 +65,7 @@ impl ReadOutApp {
             bg_thread: Some(bg_thread),
             state: DashboardState::new(),
             chart_state: widgets::chart::ChartState::default(),
+            settings_panel: widgets::settings::SettingsPanel::new(&config),
             running: true,
             show_log_panel: true,
             config,
@@ -84,6 +86,10 @@ impl ReadOutApp {
             // Ctrl+L / Cmd+L: toggle log panel
             if i.modifiers.command && i.key_pressed(egui::Key::L) {
                 self.show_log_panel = !self.show_log_panel;
+            }
+            // Ctrl+, / Cmd+,: open settings
+            if i.modifiers.command && i.key_pressed(egui::Key::Comma) {
+                self.settings_panel.open_with(&self.config);
             }
         });
     }
@@ -106,6 +112,12 @@ impl eframe::App for ReadOutApp {
         }
 
         self.handle_keyboard_shortcuts(ctx);
+
+        // Settings window (floating)
+        if let Some(new_config) = self.settings_panel.show(ctx) {
+            self.config = new_config;
+            // TODO: send Command::UpdateConfig when implemented
+        }
 
         // Periodic repaint for status updates
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
