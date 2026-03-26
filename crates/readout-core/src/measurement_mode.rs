@@ -23,6 +23,10 @@ impl MeasurementModeParser {
             None => return MeasurementMode::Unknown,
         };
 
+        Self::parse_normalized(&raw)
+    }
+
+    pub fn parse_normalized(raw: &str) -> MeasurementMode {
         if raw.is_empty() {
             return MeasurementMode::Unknown;
         }
@@ -65,5 +69,17 @@ impl MeasurementModeParser {
         }
 
         MeasurementMode::Unknown
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_normalized_skips_uppercase() {
+        assert_eq!(MeasurementModeParser::parse_normalized("VOLT:DC"), MeasurementMode::DcVoltage);
+        assert_eq!(MeasurementModeParser::parse_normalized("CURR:AC"), MeasurementMode::AcCurrent);
+        assert_eq!(MeasurementModeParser::parse_normalized(""), MeasurementMode::Unknown);
     }
 }

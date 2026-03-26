@@ -22,7 +22,9 @@ pub fn save(config: &AppConfiguration, path: &std::path::Path) -> Result<(), Con
     }
     let json = serde_json::to_string_pretty(config)
         .map_err(|e| ConfigStoreError::SerializeFailed(e.to_string()))?;
-    std::fs::write(path, json).map_err(|e| ConfigStoreError::WriteFailed(e.to_string()))
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, &json).map_err(|e| ConfigStoreError::WriteFailed(e.to_string()))?;
+    std::fs::rename(&tmp, path).map_err(|e| ConfigStoreError::WriteFailed(e.to_string()))
 }
 
 #[derive(Debug)]

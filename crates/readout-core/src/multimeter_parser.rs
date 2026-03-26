@@ -44,16 +44,17 @@ impl MultimeterParser {
         }
 
         let normalized_mode = mode_string.trim().to_uppercase();
-        let mode = MeasurementModeParser::parse(Some(&normalized_mode));
+        let mode = MeasurementModeParser::parse_normalized(&normalized_mode);
         let open_candidate = Self::is_open_candidate(mode);
 
         let upper = trimmed.to_uppercase();
         if upper.contains("OL") || upper.contains("OVER") {
+            let unit = Self::resolved_unit(&normalized_mode, mode);
             return Some(MultimeterParsedMeasurement {
                 mode,
-                mode_string: normalized_mode.clone(),
+                mode_string: normalized_mode,
                 value: None,
-                unit: Self::resolved_unit(&normalized_mode, mode),
+                unit,
                 is_overload: true,
                 is_open: open_candidate,
             });
@@ -62,7 +63,7 @@ impl MultimeterParser {
         let first_segment = trimmed.split(',').next().unwrap_or(trimmed);
         let numeric = Self::extract_numeric_prefix(first_segment);
 
-        let parsed_value = numeric.and_then(|s| s.replace(',', ".").parse::<f64>().ok());
+        let parsed_value = numeric.and_then(|s| s.parse::<f64>().ok());
 
         let Some(value) = parsed_value else {
             return Some(MultimeterParsedMeasurement {
@@ -76,21 +77,23 @@ impl MultimeterParser {
         };
 
         if Self::is_value_overload(value, mode) {
+            let unit = Self::resolved_unit(&normalized_mode, mode);
             return Some(MultimeterParsedMeasurement {
                 mode,
-                mode_string: normalized_mode.clone(),
+                mode_string: normalized_mode,
                 value: None,
-                unit: Self::resolved_unit(&normalized_mode, mode),
+                unit,
                 is_overload: true,
                 is_open: open_candidate,
             });
         }
 
+        let unit = Self::resolved_unit(&normalized_mode, mode);
         Some(MultimeterParsedMeasurement {
             mode,
-            mode_string: normalized_mode.clone(),
+            mode_string: normalized_mode,
             value: Some(value),
-            unit: Self::resolved_unit(&normalized_mode, mode),
+            unit,
             is_overload: false,
             is_open: false,
         })

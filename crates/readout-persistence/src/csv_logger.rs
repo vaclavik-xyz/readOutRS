@@ -1,8 +1,13 @@
 use readout_core::types::{DeviceId, DeviceMeasurement};
 use std::path::PathBuf;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 const CSV_HEADER: &str = "timestamp,device,value,unit,mode,is_overload,is_open,is_short";
+
+enum CsvMessage {
+    Row(CsvRow),
+    Flush(oneshot::Sender<()>),
+}
 
 struct CsvRow {
     timestamp: String,
@@ -17,8 +22,8 @@ struct CsvRow {
 
 pub struct CsvLogger {
     path: PathBuf,
-    tx: mpsc::Sender<CsvRow>,
-    rx: Option<mpsc::Receiver<CsvRow>>,
+    tx: mpsc::Sender<CsvMessage>,
+    rx: Option<mpsc::Receiver<CsvMessage>>,
     task_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
@@ -59,15 +64,17 @@ impl CsvLogger {
             is_short: measurement.is_short,
         };
         // Best-effort: drop if channel full
-        let _ = self.tx.try_send(row);
+        let _ = self.tx.try_send(CsvMessage::Row(row));
     }
 
     pub async fn flush(&self) {
-        // Give the writer task time to process pending rows
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let (tx, rx) = oneshot::channel();
+        if self.tx.send(CsvMessage::Flush(tx)).await.is_ok() {
+            let _ = rx.await;
+        }
     }
 
-    async fn writer_task(path: PathBuf, mut rx: mpsc::Receiver<CsvRow>) {
+    async fn writer_task(path: PathBuf, mut rx: mpsc::Receiver<CsvMessage>) {
         use std::io::Write;
 
         let file = std::fs::OpenOptions::new()
@@ -85,20 +92,28 @@ impl CsvLogger {
             let _ = writeln!(file, "{CSV_HEADER}");
         }
 
-        while let Some(row) = rx.recv().await {
-            let line = format!(
-                "{},{},{},{},{},{},{},{}",
-                row.timestamp,
-                row.device,
-                row.value,
-                row.unit,
-                row.mode,
-                row.is_overload,
-                row.is_open,
-                row.is_short,
-            );
-            let _ = writeln!(file, "{line}");
-            let _ = file.flush();
+        while let Some(msg) = rx.recv().await {
+            match msg {
+                CsvMessage::Row(row) => {
+                    let line = format!(
+                        "{},{},{},{},{},{},{},{}",
+                        row.timestamp,
+                        row.device,
+                        row.value,
+                        row.unit,
+                        row.mode,
+                        row.is_overload,
+                        row.is_open,
+                        row.is_short,
+                    );
+                    let _ = writeln!(file, "{line}");
+                    let _ = file.flush();
+                }
+                CsvMessage::Flush(done) => {
+                    let _ = file.flush();
+                    let _ = done.send(());
+                }
+            }
         }
     }
 }

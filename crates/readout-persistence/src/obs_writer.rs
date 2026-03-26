@@ -44,8 +44,11 @@ impl ObsOutputWriter {
 
         loop {
             tokio::select! {
-                Some(text) = rx.recv() => {
-                    latest = Some(text);
+                val = rx.recv() => {
+                    match val {
+                        Some(text) => latest = Some(text),
+                        None => break,
+                    }
                 }
                 _ = tick.tick() => {
                     if let Some(ref text) = latest {
@@ -53,6 +56,10 @@ impl ObsOutputWriter {
                     }
                 }
             }
+        }
+        // Final write on shutdown
+        if let Some(ref text) = latest {
+            let _ = std::fs::write(&path, text);
         }
     }
 }

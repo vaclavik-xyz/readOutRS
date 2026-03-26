@@ -50,7 +50,7 @@ impl AlertEvaluator {
 
         if config.dcv_high_alarm_enabled {
             let threshold = config.dcv_high_alarm_value;
-            let clear_threshold = threshold * (1.0 - HYSTERESIS_FRACTION);
+            let clear_threshold = threshold - threshold.abs() * HYSTERESIS_FRACTION;
             if value > threshold {
                 return AlarmState::HighAlarm;
             }
@@ -61,7 +61,7 @@ impl AlertEvaluator {
 
         if config.dcv_low_alarm_enabled {
             let threshold = config.dcv_low_alarm_value;
-            let clear_threshold = threshold * (1.0 + HYSTERESIS_FRACTION);
+            let clear_threshold = threshold + threshold.abs() * HYSTERESIS_FRACTION;
             if value < threshold {
                 return AlarmState::LowAlarm;
             }

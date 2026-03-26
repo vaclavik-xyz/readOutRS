@@ -12,6 +12,7 @@ pub struct ChartPipeline {
 
 impl ChartPipeline {
     pub fn new(capacity: usize) -> Self {
+        assert!(capacity > 0, "ChartPipeline capacity must be > 0");
         Self {
             buffer: vec![(Duration::ZERO, 0.0); capacity],
             capacity,
@@ -91,7 +92,8 @@ impl ChartPipeline {
     fn min_max_downsample(samples: &[ChartPoint], target_points: usize) -> Vec<ChartPoint> {
         let bucket_count = target_points / 2;
         if bucket_count == 0 {
-            return Vec::new();
+            // target_points < 2: return at least the last sample if available
+            return samples.last().copied().into_iter().collect();
         }
 
         let bucket_size = samples.len() as f64 / bucket_count as f64;
@@ -106,29 +108,27 @@ impl ChartPipeline {
                 continue;
             }
 
-            let mut min_sample = samples[start];
-            let mut max_sample = samples[start];
+            let mut min_idx = start;
+            let mut max_idx = start;
 
-            for &sample in &samples[start..end] {
-                if sample.1 < min_sample.1 {
-                    min_sample = sample;
+            for i in start..end {
+                if samples[i].1.total_cmp(&samples[min_idx].1).is_lt() {
+                    min_idx = i;
                 }
-                if sample.1 > max_sample.1 {
-                    max_sample = sample;
+                if samples[i].1.total_cmp(&samples[max_idx].1).is_gt() {
+                    max_idx = i;
                 }
             }
 
-            // Add in chronological order
-            if min_sample.0 <= max_sample.0 {
-                result.push(min_sample);
-                if min_sample != max_sample {
-                    result.push(max_sample);
-                }
+            // Add in chronological order, deduplicate by index
+            if min_idx == max_idx {
+                result.push(samples[min_idx]);
+            } else if samples[min_idx].0 <= samples[max_idx].0 {
+                result.push(samples[min_idx]);
+                result.push(samples[max_idx]);
             } else {
-                result.push(max_sample);
-                if min_sample != max_sample {
-                    result.push(min_sample);
-                }
+                result.push(samples[max_idx]);
+                result.push(samples[min_idx]);
             }
         }
 

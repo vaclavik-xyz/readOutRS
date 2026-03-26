@@ -316,7 +316,13 @@ impl AppConfiguration {
         self.output_queue_capacity = self.output_queue_capacity.clamp(8, 2048);
         self.output_queue_max_retry_attempts = self.output_queue_max_retry_attempts.clamp(0, 10);
         self.pc_beep_volume = self.pc_beep_volume.clamp(0.0, 1.0);
-        self.short_threshold = self.short_threshold.max(0.1);
+        self.short_threshold = self.short_threshold.clamp(0.1, 1000.0);
+        self.dcv_high_alarm_value = self.dcv_high_alarm_value.clamp(-1000.0, 1000.0);
+        self.dcv_low_alarm_value = self.dcv_low_alarm_value.clamp(-1000.0, 1000.0);
+        // Ensure low < high invariant
+        if self.dcv_low_alarm_value >= self.dcv_high_alarm_value {
+            self.dcv_low_alarm_value = self.dcv_high_alarm_value - 1.0;
+        }
     }
 }
 
