@@ -24,18 +24,22 @@ pub fn show(
 
     egui::Frame::group(ui.style())
         .fill(frame_fill)
-        .inner_margin(10.0)
+        .inner_margin(12.0)
         .show(ui, |ui| {
             ui.vertical(|ui| {
                 // Header row: title + connection pill
                 ui.horizontal(|ui| {
-                    ui.strong(title);
+                    ui.label(
+                        egui::RichText::new(title)
+                            .size(14.0)
+                            .strong(),
+                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         connection_pill(ui, connection);
                     });
                 });
 
-                ui.add_space(4.0);
+                ui.add_space(6.0);
 
                 if let Some(m) = measurement {
                     // Primary value with SI prefix
@@ -46,34 +50,43 @@ pub fn show(
 
                     ui.label(
                         egui::RichText::new(&value_text)
-                            .size(28.0)
+                            .size(36.0)
                             .strong(),
                     );
+
+                    ui.add_space(2.0);
 
                     // Mode
                     ui.label(
                         egui::RichText::new(&m.mode_string)
-                            .size(12.0)
-                            .color(egui::Color32::GRAY),
+                            .size(11.0)
+                            .color(egui::Color32::from_rgb(160, 160, 160)),
                     );
 
                     // Secondary values (USB-C)
                     if device == DeviceId::UsbC {
-                        ui.add_space(4.0);
+                        ui.add_space(6.0);
                         ui.separator();
-                        ui.add_space(2.0);
+                        ui.add_space(4.0);
                         if let (Some(current), Some(power)) = (m.secondary_value, m.power_watts) {
                             ui.horizontal(|ui| {
-                                ui.label(format_si(current, "A"));
+                                ui.label(
+                                    egui::RichText::new(format_si(current, "A"))
+                                        .size(16.0),
+                                );
                                 ui.separator();
-                                ui.label(format_si(power, "W"));
+                                ui.label(
+                                    egui::RichText::new(format_si(power, "W"))
+                                        .size(16.0),
+                                );
                             });
                         }
                         if let Some(mwh) = m.energy_mwh {
+                            ui.add_space(2.0);
                             ui.label(
                                 egui::RichText::new(format!("{mwh:.1} mWh"))
                                     .size(12.0)
-                                    .color(egui::Color32::GRAY),
+                                    .color(egui::Color32::from_rgb(160, 160, 160)),
                             );
                         }
                     }
@@ -81,16 +94,40 @@ pub fn show(
                     // Alarm indicator
                     match alarm {
                         AlarmState::HighAlarm => {
-                            ui.colored_label(egui::Color32::RED, "⚠ HIGH ALARM");
+                            ui.add_space(4.0);
+                            ui.label(
+                                egui::RichText::new("⚠ HIGH ALARM")
+                                    .size(13.0)
+                                    .strong()
+                                    .color(egui::Color32::RED),
+                            );
                         }
                         AlarmState::LowAlarm => {
-                            ui.colored_label(egui::Color32::RED, "⚠ LOW ALARM");
+                            ui.add_space(4.0);
+                            ui.label(
+                                egui::RichText::new("⚠ LOW ALARM")
+                                    .size(13.0)
+                                    .strong()
+                                    .color(egui::Color32::RED),
+                            );
                         }
                         AlarmState::Short => {
-                            ui.colored_label(egui::Color32::from_rgb(200, 120, 0), "⚡ SHORT");
+                            ui.add_space(4.0);
+                            ui.label(
+                                egui::RichText::new("⚡ SHORT")
+                                    .size(13.0)
+                                    .strong()
+                                    .color(egui::Color32::from_rgb(200, 120, 0)),
+                            );
                         }
                         AlarmState::Open => {
-                            ui.colored_label(egui::Color32::YELLOW, "⊘ OPEN");
+                            ui.add_space(4.0);
+                            ui.label(
+                                egui::RichText::new("⊘ OPEN")
+                                    .size(13.0)
+                                    .strong()
+                                    .color(egui::Color32::YELLOW),
+                            );
                         }
                         AlarmState::None => {}
                     }
@@ -98,7 +135,7 @@ pub fn show(
                     // No data yet
                     ui.label(
                         egui::RichText::new("---")
-                            .size(28.0)
+                            .size(36.0)
                             .color(egui::Color32::GRAY),
                     );
                     disconnected_hint(ui, connection);
@@ -116,23 +153,16 @@ fn connection_pill(ui: &mut egui::Ui, state: &ConnectionState) {
         ConnectionState::Error(_) => (egui::Color32::from_rgb(220, 60, 60), "Error"),
     };
 
-    // Paint pill background then text on top
-    let galley = ui.painter().layout_no_wrap(
-        text.to_string(),
-        egui::FontId::proportional(11.0),
-        egui::Color32::WHITE,
-    );
+    let font = egui::FontId::proportional(11.0);
+    let galley = ui.painter().layout_no_wrap(text.to_string(), font.clone(), egui::Color32::WHITE);
     let desired = galley.size() + egui::vec2(12.0, 6.0);
-    let (rect, _response) = ui.allocate_exact_size(desired, egui::Sense::hover());
-    ui.painter().rect_filled(rect, 4.0, color.linear_multiply(0.7));
-    ui.painter().galley(
-        rect.min + egui::vec2(6.0, 3.0),
-        galley,
-        egui::Color32::WHITE,
-    );
-
+    let (rect, response) = ui.allocate_exact_size(desired, egui::Sense::hover());
+    if ui.is_rect_visible(rect) {
+        ui.painter().rect_filled(rect, 4.0, color.linear_multiply(0.7));
+        ui.painter().galley(rect.min + egui::vec2(6.0, 3.0), galley, egui::Color32::WHITE);
+    }
     if let ConnectionState::Error(msg) = state {
-        _response.on_hover_text(msg);
+        response.on_hover_text(msg);
     }
 }
 
