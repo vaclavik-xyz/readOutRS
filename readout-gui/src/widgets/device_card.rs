@@ -1,4 +1,4 @@
-use readout_core::types::{AlarmState, DeviceId, DeviceMeasurement};
+use readout_core::types::{AlarmState, ConnectionState, DeviceId, DeviceMeasurement};
 use readout_core::value_format::format_si;
 
 pub fn show(
@@ -6,6 +6,7 @@ pub fn show(
     device: DeviceId,
     measurement: Option<&DeviceMeasurement>,
     alarm: AlarmState,
+    connection: &ConnectionState,
 ) {
     let title = match device {
         DeviceId::Multimeter => "Multimeter",
@@ -23,9 +24,18 @@ pub fn show(
 
     egui::Frame::group(ui.style())
         .fill(frame_fill)
+        .inner_margin(10.0)
         .show(ui, |ui| {
             ui.vertical(|ui| {
-                ui.strong(title);
+                // Header row: title + connection pill
+                ui.horizontal(|ui| {
+                    ui.strong(title);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        connection_pill(ui, connection);
+                    });
+                });
+
+                ui.add_space(4.0);
 
                 if let Some(m) = measurement {
                     // Primary value with SI prefix
@@ -49,14 +59,22 @@ pub fn show(
 
                     // Secondary values (USB-C)
                     if device == DeviceId::UsbC {
-                        if let Some(current) = m.secondary_value {
-                            ui.label(format!("{current:.3} A"));
-                        }
-                        if let Some(power) = m.power_watts {
-                            ui.label(format!("{power:.2} W"));
+                        ui.add_space(4.0);
+                        ui.separator();
+                        ui.add_space(2.0);
+                        if let (Some(current), Some(power)) = (m.secondary_value, m.power_watts) {
+                            ui.horizontal(|ui| {
+                                ui.label(format_si(current, "A"));
+                                ui.separator();
+                                ui.label(format_si(power, "W"));
+                            });
                         }
                         if let Some(mwh) = m.energy_mwh {
-                            ui.label(format!("{mwh:.0} mWh"));
+                            ui.label(
+                                egui::RichText::new(format!("{mwh:.1} mWh"))
+                                    .size(12.0)
+                                    .color(egui::Color32::GRAY),
+                            );
                         }
                     }
 
@@ -77,12 +95,59 @@ pub fn show(
                         AlarmState::None => {}
                     }
                 } else {
+                    // No data yet
                     ui.label(
                         egui::RichText::new("---")
                             .size(28.0)
                             .color(egui::Color32::GRAY),
                     );
+                    disconnected_hint(ui, connection);
                 }
             });
         });
+}
+
+fn connection_pill(ui: &mut egui::Ui, state: &ConnectionState) {
+    let (color, text) = match state {
+        ConnectionState::Connected => (egui::Color32::from_rgb(60, 180, 80), "Connected"),
+        ConnectionState::Connecting => (egui::Color32::from_rgb(220, 180, 40), "Connecting..."),
+        ConnectionState::Reconnecting => (egui::Color32::from_rgb(220, 180, 40), "Reconnecting..."),
+        ConnectionState::Disconnected => (egui::Color32::from_rgb(120, 120, 120), "Disconnected"),
+        ConnectionState::Error(_) => (egui::Color32::from_rgb(220, 60, 60), "Error"),
+    };
+
+    // Paint pill background then text on top
+    let galley = ui.painter().layout_no_wrap(
+        text.to_string(),
+        egui::FontId::proportional(11.0),
+        egui::Color32::WHITE,
+    );
+    let desired = galley.size() + egui::vec2(12.0, 6.0);
+    let (rect, _response) = ui.allocate_exact_size(desired, egui::Sense::hover());
+    ui.painter().rect_filled(rect, 4.0, color.linear_multiply(0.7));
+    ui.painter().galley(
+        rect.min + egui::vec2(6.0, 3.0),
+        galley,
+        egui::Color32::WHITE,
+    );
+
+    if let ConnectionState::Error(msg) = state {
+        _response.on_hover_text(msg);
+    }
+}
+
+fn disconnected_hint(ui: &mut egui::Ui, connection: &ConnectionState) {
+    let hint = match connection {
+        ConnectionState::Connecting | ConnectionState::Reconnecting => "Connecting...",
+        ConnectionState::Error(_) => "Connection error — check device",
+        ConnectionState::Disconnected => "Disconnected",
+        ConnectionState::Connected => return,
+    };
+    ui.add_space(4.0);
+    ui.label(
+        egui::RichText::new(hint)
+            .size(12.0)
+            .color(egui::Color32::GRAY)
+            .italics(),
+    );
 }

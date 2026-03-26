@@ -282,12 +282,14 @@ impl eframe::App for ReadOutApp {
                     DeviceId::Multimeter,
                     self.state.latest_measurement.get(&DeviceId::Multimeter),
                     self.state.alarm_for(DeviceId::Multimeter),
+                    self.state.connection_for(DeviceId::Multimeter),
                 );
                 widgets::device_card::show(
                     &mut cols[1],
                     DeviceId::UsbC,
                     self.state.latest_measurement.get(&DeviceId::UsbC),
                     self.state.alarm_for(DeviceId::UsbC),
+                    self.state.connection_for(DeviceId::UsbC),
                 );
             });
 
