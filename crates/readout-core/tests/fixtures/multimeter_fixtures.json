@@ -1,0 +1,46 @@
+[
+  {
+    "response": "1.2300E+01 V",
+    "mode": "VOLT:DC",
+    "expected": {
+      "mode": "dcVoltage",
+      "value": 12.3,
+      "unit": "V DC",
+      "isOverload": false,
+      "isOpen": false
+    }
+  },
+  {
+    "response": "OL",
+    "mode": "RES",
+    "expected": {
+      "mode": "resistance",
+      "value": null,
+      "unit": "Ω",
+      "isOverload": true,
+      "isOpen": true
+    }
+  },
+  {
+    "response": "0.1234,0,0",
+    "mode": "CURR:AC",
+    "expected": {
+      "mode": "acCurrent",
+      "value": 0.1234,
+      "unit": "A AC",
+      "isOverload": false,
+      "isOpen": false
+    }
+  },
+  {
+    "response": "NOT_A_NUMBER",
+    "mode": "TEMP",
+    "expected": {
+      "mode": "temperature",
+      "value": null,
+      "unit": "",
+      "isOverload": false,
+      "isOpen": false
+    }
+  }
+]
