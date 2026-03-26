@@ -22,7 +22,7 @@ struct CsvRow {
 
 pub struct CsvLogger {
     path: PathBuf,
-    tx: mpsc::Sender<CsvMessage>,
+    tx: Option<mpsc::Sender<CsvMessage>>,
     rx: Option<mpsc::Receiver<CsvMessage>>,
     task_handle: Option<tokio::task::JoinHandle<()>>,
 }
@@ -32,7 +32,7 @@ impl CsvLogger {
         let (tx, rx) = mpsc::channel(256);
         Self {
             path,
-            tx,
+            tx: Some(tx),
             rx: Some(rx),
             task_handle: None,
         }
@@ -63,14 +63,27 @@ impl CsvLogger {
             is_open: measurement.is_open,
             is_short: measurement.is_short,
         };
-        // Best-effort: drop if channel full
-        let _ = self.tx.try_send(CsvMessage::Row(row));
+        // Best-effort: drop if channel full or closed
+        if let Some(ref tx) = self.tx {
+            let _ = tx.try_send(CsvMessage::Row(row));
+        }
     }
 
     pub async fn flush(&self) {
-        let (tx, rx) = oneshot::channel();
-        if self.tx.send(CsvMessage::Flush(tx)).await.is_ok() {
-            let _ = rx.await;
+        let (done_tx, done_rx) = oneshot::channel();
+        if let Some(ref tx) = self.tx {
+            if tx.send(CsvMessage::Flush(done_tx)).await.is_ok() {
+                let _ = done_rx.await;
+            }
+        }
+    }
+
+    /// Gracefully shut down: close the channel, drain pending rows, and flush.
+    pub async fn shutdown(&mut self) {
+        // Drop sender to close channel — writer task will drain and flush
+        self.tx.take();
+        if let Some(handle) = self.task_handle.take() {
+            let _ = handle.await;
         }
     }
 

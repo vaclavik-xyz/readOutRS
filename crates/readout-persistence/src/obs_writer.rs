@@ -5,7 +5,7 @@ use tokio::time::{interval, Duration};
 
 pub struct ObsOutputWriter {
     path: PathBuf,
-    tx: mpsc::Sender<String>,
+    tx: Option<mpsc::Sender<String>>,
     rx: Option<mpsc::Receiver<String>>,
     task_handle: Option<tokio::task::JoinHandle<()>>,
 }
@@ -15,7 +15,7 @@ impl ObsOutputWriter {
         let (tx, rx) = mpsc::channel(4);
         Self {
             path,
-            tx,
+            tx: Some(tx),
             rx: Some(rx),
             task_handle: None,
         }
@@ -34,8 +34,10 @@ impl ObsOutputWriter {
             .primary_value
             .map(|v| format!("{v} {}", measurement.primary_unit))
             .unwrap_or_else(|| format!("OL {}", measurement.primary_unit));
-        // Best-effort: skip if channel full (only latest value matters)
-        let _ = self.tx.try_send(text);
+        // Best-effort: skip if channel full or closed (only latest value matters)
+        if let Some(ref tx) = self.tx {
+            let _ = tx.try_send(text);
+        }
     }
 
     async fn writer_task(path: PathBuf, mut rx: mpsc::Receiver<String>) {
@@ -70,5 +72,14 @@ impl ObsOutputWriter {
     }
 }
 
-// When ObsOutputWriter is dropped, self.tx is dropped automatically, closing the channel.
-// The writer task will break from the loop, write final value, and exit.
+impl ObsOutputWriter {
+    /// Gracefully shut down: close the channel, let the task write final value.
+    pub async fn shutdown(&mut self) {
+        self.tx.take();
+        if let Some(handle) = self.task_handle.take() {
+            let _ = handle.await;
+        }
+    }
+}
+// When ObsOutputWriter is dropped without shutdown(), tx drops automatically,
+// closing the channel. The writer task will break and attempt final write.

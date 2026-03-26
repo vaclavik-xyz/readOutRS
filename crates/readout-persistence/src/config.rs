@@ -329,9 +329,11 @@ impl AppConfiguration {
         self.short_threshold = self.short_threshold.clamp(0.1, 1000.0);
         self.dcv_high_alarm_value = self.dcv_high_alarm_value.clamp(-1000.0, 1000.0);
         self.dcv_low_alarm_value = self.dcv_low_alarm_value.clamp(-1000.0, 1000.0);
-        // Ensure low < high invariant
+        // Ensure low < high invariant, keeping both within clamp range
         if self.dcv_low_alarm_value >= self.dcv_high_alarm_value {
-            self.dcv_low_alarm_value = self.dcv_high_alarm_value - 1.0;
+            let mid = (self.dcv_low_alarm_value + self.dcv_high_alarm_value) / 2.0;
+            self.dcv_high_alarm_value = (mid + 0.5).clamp(-1000.0, 1000.0);
+            self.dcv_low_alarm_value = (mid - 0.5).clamp(-1000.0, 1000.0);
         }
     }
 }
