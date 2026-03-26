@@ -5,6 +5,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 use readout_core::types::{AlarmState, DeviceId, DeviceMeasurement};
+use readout_core::value_format::format_si;
 
 pub fn render(
     frame: &mut Frame,
@@ -35,12 +36,12 @@ pub fn render(
     if let Some(m) = measurement {
         let value_text = m
             .primary_value
-            .map(|v| format!("{v:.4}"))
-            .unwrap_or_else(|| "OL".into());
+            .map(|v| format_si(v, &m.primary_unit))
+            .unwrap_or_else(|| format!("OL {}", m.primary_unit));
 
         lines.push(Line::from(vec![
             Span::styled(
-                format!("{value_text} {}", m.primary_unit),
+                value_text,
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),

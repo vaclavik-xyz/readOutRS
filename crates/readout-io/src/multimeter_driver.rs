@@ -43,7 +43,7 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
     pub async fn poll(&mut self) -> Result<DeviceMeasurement, TransportError> {
         // Query current mode
         match self.transport.query("FUNC?").await {
-            Ok(Some(mode)) => self.current_mode = mode,
+            Ok(Some(mode)) => self.current_mode = mode.trim_matches('"').to_string(),
             Ok(None) => {} // keep previous mode
             Err(e) => tracing::warn!("FUNC? query failed, using previous mode: {e}"),
         }

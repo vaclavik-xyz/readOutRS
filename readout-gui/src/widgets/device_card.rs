@@ -1,4 +1,5 @@
 use readout_core::types::{AlarmState, DeviceId, DeviceMeasurement};
+use readout_core::value_format::format_si;
 
 pub fn show(
     ui: &mut egui::Ui,
@@ -27,14 +28,14 @@ pub fn show(
                 ui.strong(title);
 
                 if let Some(m) = measurement {
-                    // Primary value
+                    // Primary value with SI prefix
                     let value_text = m
                         .primary_value
-                        .map(|v| format!("{v:.4}"))
-                        .unwrap_or_else(|| "OL".into());
+                        .map(|v| format_si(v, &m.primary_unit))
+                        .unwrap_or_else(|| format!("OL {}", m.primary_unit));
 
                     ui.label(
-                        egui::RichText::new(format!("{value_text} {}", m.primary_unit))
+                        egui::RichText::new(&value_text)
                             .size(28.0)
                             .strong(),
                     );

@@ -1,4 +1,5 @@
 use readout_core::types::{DeviceId, DeviceMeasurement};
+use readout_core::value_format::format_si;
 
 pub struct PopoutState {
     pub multimeter_open: bool,
@@ -42,11 +43,11 @@ fn show_popout_window(
             if let Some(m) = measurement {
                 let value_text = m
                     .primary_value
-                    .map(|v| format!("{v:.4}"))
-                    .unwrap_or_else(|| "OL".into());
+                    .map(|v| format_si(v, &m.primary_unit))
+                    .unwrap_or_else(|| format!("OL {}", m.primary_unit));
 
                 ui.label(
-                    egui::RichText::new(format!("{value_text} {}", m.primary_unit))
+                    egui::RichText::new(&value_text)
                         .size(48.0)
                         .strong(),
                 );
