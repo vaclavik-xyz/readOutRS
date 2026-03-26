@@ -55,6 +55,7 @@ impl TuiApp {
             }
             KeyCode::Char('p') => self.state.paused = !self.state.paused,
             KeyCode::Char('s') => self.settings_screen.open(&self.config),
+            KeyCode::Char('m') => self.chart_state.next_usbc_metric(),
             KeyCode::Right => self.chart_state.next_range(),
             KeyCode::Left => self.chart_state.prev_range(),
             _ => {}
@@ -146,6 +147,7 @@ impl TuiApp {
             frame,
             chunks[2],
             &mut self.state.chart_pipelines,
+            &mut self.state.usbc_chart_pipelines,
             &mut self.chart_state,
         );
 

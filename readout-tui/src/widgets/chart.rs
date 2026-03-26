@@ -4,6 +4,7 @@ use ratatui::widgets::{Axis, Block, Borders, Chart, Dataset, GraphType};
 use ratatui::Frame;
 
 use readout_core::chart_pipeline::ChartPipeline;
+use readout_core::dashboard_state::{UsbCMetric, USBC_METRICS};
 use readout_core::types::DeviceId;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -18,6 +19,7 @@ const RANGE_OPTIONS: &[(Duration, &str)] = &[
 
 pub struct TuiChartState {
     pub selected_range_idx: usize,
+    pub usbc_metric: UsbCMetric,
     mm_buf: Vec<(f64, f64)>,
     usbc_buf: Vec<(f64, f64)>,
 }
@@ -26,6 +28,7 @@ impl Default for TuiChartState {
     fn default() -> Self {
         Self {
             selected_range_idx: 0,
+            usbc_metric: UsbCMetric::Voltage,
             mm_buf: Vec::new(),
             usbc_buf: Vec::new(),
         }
@@ -45,8 +48,25 @@ impl TuiChartState {
         }
     }
 
+    pub fn next_usbc_metric(&mut self) {
+        let idx = USBC_METRICS
+            .iter()
+            .position(|(m, _)| *m == self.usbc_metric)
+            .unwrap_or(0);
+        let next = (idx + 1) % USBC_METRICS.len();
+        self.usbc_metric = USBC_METRICS[next].0;
+    }
+
     pub fn range_label(&self) -> &str {
         RANGE_OPTIONS[self.selected_range_idx].1
+    }
+
+    pub fn usbc_metric_label(&self) -> &str {
+        USBC_METRICS
+            .iter()
+            .find(|(m, _)| *m == self.usbc_metric)
+            .map(|(_, l)| *l)
+            .unwrap_or("V")
     }
 }
 
@@ -60,8 +80,11 @@ fn y_bounds(buf: &[(f64, f64)]) -> [f64; 2] {
         });
     if lo > hi {
         [0.0, 1.0]
+    } else if (hi - lo).abs() < 0.001 {
+        // Flat line — add fixed margin so chart isn't squashed
+        [lo - 0.5, hi + 0.5]
     } else {
-        let margin = (hi - lo).max(0.1) * 0.1;
+        let margin = (hi - lo) * 0.1;
         [lo - margin, hi + margin]
     }
 }
@@ -107,8 +130,8 @@ fn render_single_chart(
             Axis::default()
                 .bounds(y)
                 .labels(vec![
-                    ratatui::text::Line::from(format!("{:.1}", y[0])),
-                    ratatui::text::Line::from(format!("{:.1}", y[1])),
+                    ratatui::text::Line::from(format!("{:.2}", y[0])),
+                    ratatui::text::Line::from(format!("{:.2}", y[1])),
                 ]),
         );
 
@@ -119,19 +142,22 @@ pub fn render(
     frame: &mut Frame,
     area: Rect,
     pipelines: &mut HashMap<DeviceId, ChartPipeline>,
+    usbc_pipelines: &mut HashMap<UsbCMetric, ChartPipeline>,
     chart_state: &mut TuiChartState,
 ) {
     let (range, _) = RANGE_OPTIONS[chart_state.selected_range_idx];
-    let target_points = area.width as usize;
+    // Braille chars give 2x horizontal resolution — request more points for smoother lines
+    let target_points = (area.width as usize) * 2;
 
     // Use a shared "now" for both pipelines so they align on the same time window.
     let now = pipelines
         .values()
         .filter_map(|p| p.latest_timestamp())
+        .chain(usbc_pipelines.values().filter_map(|p| p.latest_timestamp()))
         .max()
         .unwrap_or(Duration::ZERO);
 
-    // Update buffers
+    // Multimeter data
     chart_state.mm_buf.clear();
     if let Some(pipeline) = pipelines.get_mut(&DeviceId::Multimeter) {
         let points = pipeline.query_with_now(range, target_points, now);
@@ -140,8 +166,9 @@ pub fn render(
             .extend(points.iter().map(|(t, v)| (t.as_secs_f64(), *v)));
     }
 
+    // USB-C data — from selected metric pipeline
     chart_state.usbc_buf.clear();
-    if let Some(pipeline) = pipelines.get_mut(&DeviceId::UsbC) {
+    if let Some(pipeline) = usbc_pipelines.get_mut(&chart_state.usbc_metric) {
         let points = pipeline.query_with_now(range, target_points, now);
         chart_state
             .usbc_buf
@@ -149,6 +176,7 @@ pub fn render(
     }
 
     let range_label = chart_state.range_label();
+    let metric_label = chart_state.usbc_metric_label();
 
     let chunks =
         Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).split(area);
@@ -165,7 +193,7 @@ pub fn render(
         frame,
         chunks[1],
         &chart_state.usbc_buf,
-        &format!(" USB-C [{range_label}] "),
+        &format!(" USB-C [{metric_label}] [{range_label}] "),
         Color::Yellow,
     );
 }

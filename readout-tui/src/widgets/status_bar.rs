@@ -35,7 +35,7 @@ pub fn render(
         Span::raw(" "),
         mode_span,
         Span::raw(format!(
-            " Measurements: {} | Errors: {} | Range: {} | [q]uit [p]ause [\u{2190}/\u{2192}]range [s]ettings",
+            " Measurements: {} | Errors: {} | Range: {} | [q]uit [p]ause [m]etric [\u{2190}/\u{2192}]range [s]ett",
             state.health.measurement_count, state.health.error_count, range_label,
         )),
     ]);
