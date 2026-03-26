@@ -12,5 +12,10 @@ tracing = { workspace = true }
 thiserror = { workspace = true }
 serialport = "4"
 
+[features]
+soak = []
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
+serde_json = { workspace = true }
+readout-persistence = { workspace = true }
