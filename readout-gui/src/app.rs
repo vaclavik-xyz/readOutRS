@@ -224,6 +224,8 @@ impl eframe::App for ReadOutApp {
             pc_beep_enabled: self.config.dashboard_beep_master_enabled,
             meter_beep_enabled: self.config.beep_on_short_meter,
             log_visible: self.show_log_panel,
+            popout_mm: self.popout_state.multimeter_open,
+            popout_usbc: self.popout_state.usbc_open,
         };
         egui::TopBottomPanel::top("header").show(ctx, |ui| {
             header_action = widgets::header::show(ui, &self.state, self.running, &mut paused, &header_state);
@@ -267,6 +269,12 @@ impl eframe::App for ReadOutApp {
             }
             widgets::header::HeaderAction::ToggleLog => {
                 self.show_log_panel = !self.show_log_panel;
+            }
+            widgets::header::HeaderAction::TogglePopoutMM => {
+                self.popout_state.multimeter_open = !self.popout_state.multimeter_open;
+            }
+            widgets::header::HeaderAction::TogglePopoutUsbC => {
+                self.popout_state.usbc_open = !self.popout_state.usbc_open;
             }
             widgets::header::HeaderAction::None => {}
         }

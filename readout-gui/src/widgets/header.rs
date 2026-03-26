@@ -8,12 +8,16 @@ pub enum HeaderAction {
     TogglePcBeep,
     ToggleMeterBeep,
     ToggleLog,
+    TogglePopoutMM,
+    TogglePopoutUsbC,
 }
 
 pub struct HeaderState {
     pub pc_beep_enabled: bool,
     pub meter_beep_enabled: bool,
     pub log_visible: bool,
+    pub popout_mm: bool,
+    pub popout_usbc: bool,
 }
 
 pub fn show(
@@ -49,6 +53,18 @@ pub fn show(
         let pause_label = if *paused { "▶ Resume" } else { "⏸ Pause" };
         if ui.button(pause_label).clicked() {
             *paused = !*paused;
+        }
+
+        ui.separator();
+
+        // Popout toggles
+        let mm_pop = if header_state.popout_mm { "⬒ MM ✓" } else { "⬒ MM" };
+        if ui.button(mm_pop).clicked() {
+            action = HeaderAction::TogglePopoutMM;
+        }
+        let usbc_pop = if header_state.popout_usbc { "⬒ USB-C ✓" } else { "⬒ USB-C" };
+        if ui.button(usbc_pop).clicked() {
+            action = HeaderAction::TogglePopoutUsbC;
         }
 
         // Right-aligned controls
