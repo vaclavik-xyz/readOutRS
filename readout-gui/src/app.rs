@@ -7,23 +7,15 @@ use readout_persistence::config_store;
 use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
 
-pub struct ReadOutApp {
+struct RuntimeHandle {
     event_rx: std::sync::mpsc::Receiver<RuntimeEvent>,
     command_tx: tokio::sync::mpsc::Sender<Command>,
     cancel: CancellationToken,
     bg_thread: Option<std::thread::JoinHandle<()>>,
-    state: DashboardState,
-    chart_state: widgets::chart::ChartState,
-    settings_panel: widgets::settings::SettingsPanel,
-    wizard: widgets::first_run_wizard::FirstRunWizard,
-    running: bool,
-    show_log_panel: bool,
-    config: AppConfiguration,
-    config_path: PathBuf,
 }
 
-impl ReadOutApp {
-    pub fn new(config: AppConfiguration, config_path: PathBuf, first_run: bool, ctx: &egui::Context) -> Self {
+impl RuntimeHandle {
+    fn start(config: &AppConfiguration, ctx: &egui::Context) -> Self {
         let (std_tx, std_rx) = std::sync::mpsc::channel();
         let cancel = CancellationToken::new();
 
@@ -67,42 +59,10 @@ impl ReadOutApp {
             command_tx,
             cancel,
             bg_thread: Some(bg_thread),
-            state: DashboardState::new(),
-            chart_state: widgets::chart::ChartState::default(),
-            settings_panel: widgets::settings::SettingsPanel::new(&config),
-            wizard: widgets::first_run_wizard::FirstRunWizard::new(&config, first_run),
-            running: true,
-            show_log_panel: true,
-            config,
-            config_path,
         }
     }
 
-    #[allow(dead_code)]
-    pub fn command_sender(&self) -> tokio::sync::mpsc::Sender<Command> {
-        self.command_tx.clone()
-    }
-
-    fn handle_keyboard_shortcuts(&mut self, ctx: &egui::Context) {
-        ctx.input(|i| {
-            // Ctrl+P / Cmd+P: toggle pause
-            if i.modifiers.command && i.key_pressed(egui::Key::P) {
-                self.state.paused = !self.state.paused;
-            }
-            // Ctrl+L / Cmd+L: toggle log panel
-            if i.modifiers.command && i.key_pressed(egui::Key::L) {
-                self.show_log_panel = !self.show_log_panel;
-            }
-            // Ctrl+, / Cmd+,: open settings
-            if i.modifiers.command && i.key_pressed(egui::Key::Comma) {
-                self.settings_panel.open_with(&self.config);
-            }
-        });
-    }
-}
-
-impl Drop for ReadOutApp {
-    fn drop(&mut self) {
+    fn shutdown(&mut self) {
         self.cancel.cancel();
         if let Some(handle) = self.bg_thread.take() {
             let _ = handle.join();
@@ -110,24 +70,98 @@ impl Drop for ReadOutApp {
     }
 }
 
+impl Drop for RuntimeHandle {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+pub struct ReadOutApp {
+    runtime: Option<RuntimeHandle>,
+    state: DashboardState,
+    chart_state: widgets::chart::ChartState,
+    settings_panel: widgets::settings::SettingsPanel,
+    wizard: widgets::first_run_wizard::FirstRunWizard,
+    running: bool,
+    show_log_panel: bool,
+    config: AppConfiguration,
+    config_path: PathBuf,
+    ctx: egui::Context,
+}
+
+impl ReadOutApp {
+    pub fn new(
+        config: AppConfiguration,
+        config_path: PathBuf,
+        first_run: bool,
+        ctx: &egui::Context,
+    ) -> Self {
+        // Defer runtime start if first-run wizard is active
+        let runtime = if first_run {
+            None
+        } else {
+            Some(RuntimeHandle::start(&config, ctx))
+        };
+
+        Self {
+            runtime,
+            state: DashboardState::new(),
+            chart_state: widgets::chart::ChartState::default(),
+            settings_panel: widgets::settings::SettingsPanel::new(&config),
+            wizard: widgets::first_run_wizard::FirstRunWizard::new(&config, first_run),
+            running: !first_run,
+            show_log_panel: true,
+            config,
+            config_path,
+            ctx: ctx.clone(),
+        }
+    }
+
+    fn start_runtime(&mut self) {
+        if self.runtime.is_some() {
+            return;
+        }
+        self.runtime = Some(RuntimeHandle::start(&self.config, &self.ctx));
+        self.running = true;
+        self.state = DashboardState::new();
+    }
+
+    fn handle_keyboard_shortcuts(&mut self, ctx: &egui::Context) {
+        ctx.input(|i| {
+            if i.modifiers.command && i.key_pressed(egui::Key::P) {
+                self.state.paused = !self.state.paused;
+            }
+            if i.modifiers.command && i.key_pressed(egui::Key::L) {
+                self.show_log_panel = !self.show_log_panel;
+            }
+            if i.modifiers.command && i.key_pressed(egui::Key::Comma) {
+                self.settings_panel.open_with(&self.config);
+            }
+        });
+    }
+}
+
 impl eframe::App for ReadOutApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Drain events
-        while let Ok(event) = self.event_rx.try_recv() {
-            self.state.handle_event(event);
+        // Drain events from runtime
+        if let Some(ref runtime) = self.runtime {
+            while let Ok(event) = runtime.event_rx.try_recv() {
+                self.state.handle_event(event);
+            }
         }
 
         self.handle_keyboard_shortcuts(ctx);
 
-        // First-run wizard
+        // First-run wizard — starts runtime when user finishes
         if let Some(new_config) = self.wizard.show(ctx) {
             if let Err(e) = config_store::save(&new_config, &self.config_path) {
                 tracing::error!("Failed to save wizard config: {e:?}");
             }
             self.config = new_config;
+            self.start_runtime();
         }
 
-        // Settings window (floating)
+        // Settings window
         if let Some(new_config) = self.settings_panel.show(ctx) {
             if let Err(e) = config_store::save(&new_config, &self.config_path) {
                 tracing::error!("Failed to save config: {e:?}");
@@ -135,7 +169,6 @@ impl eframe::App for ReadOutApp {
             self.config = new_config;
         }
 
-        // Periodic repaint for status updates
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
 
         // --- Header ---
@@ -148,14 +181,15 @@ impl eframe::App for ReadOutApp {
 
         match header_action {
             widgets::header::HeaderAction::Stop => {
-                if let Err(e) = self.command_tx.try_send(Command::Stop) {
-                    tracing::warn!("Failed to send Stop command: {e}");
+                if let Some(ref runtime) = self.runtime {
+                    if let Err(e) = runtime.command_tx.try_send(Command::Stop) {
+                        tracing::warn!("Failed to send Stop command: {e}");
+                    }
                 }
                 self.running = false;
             }
             widgets::header::HeaderAction::Start => {
-                // Restart not yet implemented — runtime would need to be recreated.
-                // For now Start is disabled in the header when running=false.
+                // Restart not yet implemented
             }
             widgets::header::HeaderAction::None => {}
         }
@@ -165,7 +199,7 @@ impl eframe::App for ReadOutApp {
             widgets::status_strip::show(ui, &self.state);
         });
 
-        // --- Log panel (collapsible) ---
+        // --- Log panel ---
         if self.show_log_panel {
             egui::TopBottomPanel::bottom("log_panel")
                 .resizable(true)
@@ -183,7 +217,7 @@ impl eframe::App for ReadOutApp {
                 });
         }
 
-        // --- Central: device cards ---
+        // --- Central: device cards + chart ---
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.columns(2, |cols| {
                 widgets::device_card::show(
