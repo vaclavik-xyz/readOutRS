@@ -253,7 +253,7 @@ impl eframe::App for ReadOutApp {
 
         // --- Status strip ---
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
-            widgets::status_strip::show(ui, &self.state);
+            widgets::status_strip::show(ui, &self.state, self.config.use_simulator);
         });
 
         // --- Log panel ---
