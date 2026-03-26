@@ -1,7 +1,7 @@
 use crate::chart_pipeline::ChartPipeline;
 use crate::types::*;
-use std::collections::HashMap;
-use std::time::Duration;
+use std::collections::{HashMap, VecDeque};
+use std::time::{Duration, Instant};
 
 const CHART_CAPACITY: usize = 360_000;
 const LOG_BUFFER_SIZE: usize = 200;
@@ -11,10 +11,10 @@ pub struct DashboardState {
     pub connection_state: HashMap<DeviceId, ConnectionState>,
     pub alarm_state: HashMap<DeviceId, AlarmState>,
     pub chart_pipelines: HashMap<DeviceId, ChartPipeline>,
-    pub log_entries: Vec<LogEntry>,
+    pub log_entries: VecDeque<LogEntry>,
     pub health: HealthMetrics,
     pub paused: bool,
-    elapsed: Duration,
+    start_time: Instant,
 }
 
 #[derive(Debug, Clone)]
@@ -43,10 +43,10 @@ impl DashboardState {
             connection_state: HashMap::new(),
             alarm_state: HashMap::new(),
             chart_pipelines,
-            log_entries: Vec::new(),
+            log_entries: VecDeque::new(),
             health: HealthMetrics::default(),
             paused: false,
-            elapsed: Duration::ZERO,
+            start_time: Instant::now(),
         }
     }
 
@@ -55,11 +55,11 @@ impl DashboardState {
             RuntimeEvent::Measurement { device, value } => {
                 if !self.paused {
                     self.health.measurement_count += 1;
-                    // Push to chart pipeline
+                    // Push to chart pipeline with real elapsed time
                     if let Some(pipeline) = self.chart_pipelines.get_mut(&device) {
                         if let Some(v) = value.primary_value {
-                            self.elapsed += Duration::from_millis(1); // monotonic approx
-                            pipeline.push(self.elapsed, v);
+                            let elapsed = self.start_time.elapsed();
+                            pipeline.push(elapsed, v);
                         }
                     }
                     self.latest_measurement.insert(device, value);
@@ -88,9 +88,9 @@ impl DashboardState {
     }
 
     fn push_log(&mut self, level: LogLevel, message: String) {
-        self.log_entries.push(LogEntry { level, message });
+        self.log_entries.push_back(LogEntry { level, message });
         if self.log_entries.len() > LOG_BUFFER_SIZE {
-            self.log_entries.remove(0);
+            self.log_entries.pop_front();
         }
     }
 

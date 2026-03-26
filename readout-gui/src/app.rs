@@ -110,10 +110,24 @@ impl eframe::App for ReadOutApp {
 
         // --- Header ---
         let mut paused = self.state.paused;
+        let mut header_action = widgets::header::HeaderAction::None;
         egui::TopBottomPanel::top("header").show(ctx, |ui| {
-            widgets::header::show(ui, &self.state, &mut self.running, &mut paused);
+            header_action = widgets::header::show(ui, &self.state, self.running, &mut paused);
         });
         self.state.paused = paused;
+
+        match header_action {
+            widgets::header::HeaderAction::Stop => {
+                let tx = self.command_tx.clone();
+                let _ = tx.try_send(Command::Stop);
+                self.running = false;
+            }
+            widgets::header::HeaderAction::Start => {
+                // TODO: restart runtime (requires recreating Runtime)
+                self.running = true;
+            }
+            widgets::header::HeaderAction::None => {}
+        }
 
         // --- Status strip ---
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {

@@ -1,26 +1,43 @@
 use readout_core::dashboard_state::DashboardState;
 use readout_core::types::{ConnectionState, DeviceId};
 
-pub fn show(ui: &mut egui::Ui, state: &DashboardState, running: &mut bool, paused: &mut bool) {
+pub enum HeaderAction {
+    None,
+    Stop,
+    Start,
+}
+
+pub fn show(
+    ui: &mut egui::Ui,
+    state: &DashboardState,
+    running: bool,
+    paused: &mut bool,
+) -> HeaderAction {
+    let mut action = HeaderAction::None;
+
     ui.horizontal(|ui| {
-        if *running {
+        if running {
             if ui.button("⏹ Stop").clicked() {
-                *running = false;
+                action = HeaderAction::Stop;
             }
         } else if ui.button("▶ Start").clicked() {
-            *running = true;
+            action = HeaderAction::Start;
         }
 
-        if ui.button(if *paused { "▶ Resume" } else { "⏸ Pause" }).clicked() {
+        if ui
+            .button(if *paused { "▶ Resume" } else { "⏸ Pause" })
+            .clicked()
+        {
             *paused = !*paused;
         }
 
         ui.separator();
 
-        // Connection indicators
         connection_badge(ui, "MM", state.connection_for(DeviceId::Multimeter));
         connection_badge(ui, "USB-C", state.connection_for(DeviceId::UsbC));
     });
+
+    action
 }
 
 fn connection_badge(ui: &mut egui::Ui, label: &str, state: &ConnectionState) {
