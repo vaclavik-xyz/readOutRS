@@ -26,6 +26,9 @@ impl<T: DeviceTransport> UsbCDriver<T> {
 
     pub async fn connect(&mut self) -> Result<(), TransportError> {
         self.transport.open().await?;
+        // Discard the first frame — it is almost certainly a partial read
+        // because we opened the port mid-stream.
+        let _ = self.transport.read_frame().await;
         self.start_time = Some(Instant::now());
         self.energy.reset();
         Ok(())
