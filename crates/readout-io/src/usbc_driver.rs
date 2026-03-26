@@ -65,6 +65,7 @@ impl<T: DeviceTransport> UsbCDriver<T> {
             is_overload: false,
             is_open: false,
             is_short: false,
+            alarm_state: readout_core::types::AlarmState::None,
         })
     }
 

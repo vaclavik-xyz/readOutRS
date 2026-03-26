@@ -10,6 +10,7 @@ pub struct MultimeterDriver<T: ScpiTransport> {
     current_mode: String,
     alert_config: AlertConfiguration,
     alarm_state: readout_core::types::AlarmState,
+    meter_beep_enabled: bool,
 }
 
 impl<T: ScpiTransport> MultimeterDriver<T> {
@@ -19,11 +20,16 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
             current_mode: String::new(),
             alert_config: AlertConfiguration::default(),
             alarm_state: readout_core::types::AlarmState::None,
+            meter_beep_enabled: false,
         }
     }
 
     pub fn set_alert_config(&mut self, config: AlertConfiguration) {
         self.alert_config = config;
+    }
+
+    pub fn set_meter_beep(&mut self, enabled: bool) {
+        self.meter_beep_enabled = enabled;
     }
 
     pub async fn connect(&mut self) -> Result<(), TransportError> {
@@ -34,8 +40,13 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
             self.current_mode = mode;
         }
 
-        // Configure beeper
-        let _ = self.transport.query("SYST:BEEP:STAT ON").await;
+        // Configure beeper based on config
+        let beep_cmd = if self.meter_beep_enabled {
+            "SYST:BEEP:STAT ON"
+        } else {
+            "SYST:BEEP:STAT OFF"
+        };
+        let _ = self.transport.query(beep_cmd).await;
 
         Ok(())
     }
@@ -75,10 +86,12 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
             is_overload,
             is_open,
             is_short: false,
+            alarm_state: readout_core::types::AlarmState::None,
         };
 
         // Evaluate alarm state with hysteresis
         self.alarm_state = AlertEvaluator::evaluate(&mut measurement, &self.alert_config, self.alarm_state);
+        measurement.alarm_state = self.alarm_state;
 
         Ok(measurement)
     }

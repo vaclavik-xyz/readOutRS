@@ -19,6 +19,7 @@ fn make_measurement(mode: MeasurementMode, value: Option<f64>) -> DeviceMeasurem
         is_overload: false,
         is_open: false,
         is_short: false,
+        alarm_state: AlarmState::None,
     }
 }
 

@@ -50,6 +50,7 @@ pub struct DeviceMeasurement {
     pub is_overload: bool,
     pub is_open: bool,
     pub is_short: bool,
+    pub alarm_state: AlarmState,
 }
 
 #[derive(Debug, Clone)]

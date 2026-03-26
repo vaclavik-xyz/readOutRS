@@ -147,6 +147,7 @@ fn device_measurement_default_flags() {
         is_overload: false,
         is_open: false,
         is_short: false,
+        alarm_state: AlarmState::None,
     };
     assert_eq!(m.primary_value, Some(12.5));
     assert!(!m.is_overload);
@@ -169,6 +170,7 @@ fn device_measurement_overload_has_no_value() {
         is_overload: true,
         is_open: true,
         is_short: false,
+        alarm_state: AlarmState::None,
     };
     assert!(m.primary_value.is_none());
     assert!(m.is_overload);

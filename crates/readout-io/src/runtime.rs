@@ -56,9 +56,17 @@ impl Runtime {
             let sample_rate = self.config.sample_rate_hz;
             let use_simulator = self.config.use_simulator;
             let port = self.config.multimeter_port.clone();
+            let meter_beep = self.config.beep_on_short_meter;
+            let alert_config = readout_core::alerts::AlertConfiguration {
+                short_threshold: self.config.short_threshold,
+                dcv_high_alarm_enabled: self.config.dcv_high_alarm_enabled,
+                dcv_high_alarm_value: self.config.dcv_high_alarm_value,
+                dcv_low_alarm_enabled: self.config.dcv_low_alarm_enabled,
+                dcv_low_alarm_value: self.config.dcv_low_alarm_value,
+            };
 
             Some(tokio::spawn(async move {
-                Self::run_multimeter(use_simulator, port, sample_rate, event_tx, cancel).await;
+                Self::run_multimeter(use_simulator, port, sample_rate, meter_beep, alert_config, event_tx, cancel).await;
             }))
         } else {
             None
@@ -123,6 +131,8 @@ impl Runtime {
         use_simulator: bool,
         port: String,
         sample_rate: u32,
+        meter_beep: bool,
+        alert_config: readout_core::alerts::AlertConfiguration,
         event_tx: broadcast::Sender<RuntimeEvent>,
         cancel: CancellationToken,
     ) {
@@ -130,10 +140,14 @@ impl Runtime {
         if use_simulator {
             let transport = SimulatedScpiTransport::new(sample_rate);
             let mut driver = MultimeterDriver::new(transport);
+            driver.set_meter_beep(meter_beep);
+            driver.set_alert_config(alert_config);
             Self::multimeter_loop(&mut driver, event_tx, cancel).await;
         } else {
             let transport = SerialTransport::new(port, MULTIMETER_BAUD_RATE);
             let mut driver = MultimeterDriver::new(transport);
+            driver.set_meter_beep(meter_beep);
+            driver.set_alert_config(alert_config);
             Self::multimeter_loop(&mut driver, event_tx, cancel).await;
         }
     }
@@ -144,6 +158,7 @@ impl Runtime {
         cancel: CancellationToken,
     ) {
         let mut reconnect_delay = std::time::Duration::from_millis(500);
+        let mut prev_alarm = readout_core::types::AlarmState::None;
 
         loop {
             if cancel.is_cancelled() {
@@ -182,10 +197,24 @@ impl Runtime {
                             match result {
                                 Ok(measurement) => {
                                     consecutive_errors = 0;
+                                    let new_alarm = measurement.alarm_state;
                                     let _ = event_tx.send(RuntimeEvent::Measurement {
                                         device: DeviceId::Multimeter,
                                         value: measurement,
                                     });
+                                    if new_alarm != prev_alarm {
+                                        if new_alarm == readout_core::types::AlarmState::None {
+                                            let _ = event_tx.send(RuntimeEvent::AlarmCleared {
+                                                device: DeviceId::Multimeter,
+                                            });
+                                        } else {
+                                            let _ = event_tx.send(RuntimeEvent::AlarmTriggered {
+                                                device: DeviceId::Multimeter,
+                                                alarm: new_alarm,
+                                            });
+                                        }
+                                        prev_alarm = new_alarm;
+                                    }
                                 }
                                 Err(e) => {
                                     consecutive_errors += 1;

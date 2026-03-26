@@ -167,9 +167,17 @@ impl eframe::App for ReadOutApp {
         if let Some(ref runtime) = self.runtime {
             while let Ok(event) = runtime.event_rx.try_recv() {
                 // Check for alarm events to trigger audio
-                if let RuntimeEvent::AlarmTriggered { .. } = &event {
-                    if self.config.beep_on_alarm && self.config.dashboard_beep_master_enabled {
-                        self.audio.beep(self.config.pc_beep_volume as f32);
+                if let RuntimeEvent::AlarmTriggered { alarm, .. } = &event {
+                    if self.config.dashboard_beep_master_enabled {
+                        let should_beep = match alarm {
+                            readout_core::types::AlarmState::Short => self.config.beep_on_short_pc,
+                            readout_core::types::AlarmState::HighAlarm
+                            | readout_core::types::AlarmState::LowAlarm => self.config.beep_on_alarm,
+                            _ => false,
+                        };
+                        if should_beep {
+                            self.audio.beep(self.config.pc_beep_volume as f32);
+                        }
                     }
                 }
                 self.state.handle_event(event);

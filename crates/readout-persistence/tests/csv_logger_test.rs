@@ -26,6 +26,7 @@ async fn csv_logger_writes_header_and_rows() {
         is_overload: false,
         is_open: false,
         is_short: false,
+        alarm_state: readout_core::types::AlarmState::None,
     };
 
     logger.log(&m);
