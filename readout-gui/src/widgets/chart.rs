@@ -15,6 +15,7 @@ const RANGE_OPTIONS: &[(Duration, &str)] = &[
 pub struct ChartState {
     pub selected_range_idx: usize,
     pub usbc_metric: UsbCMetric,
+    pub split_charts: bool,
 }
 
 impl Default for ChartState {
@@ -22,6 +23,7 @@ impl Default for ChartState {
         Self {
             selected_range_idx: 0,
             usbc_metric: UsbCMetric::Voltage,
+            split_charts: false,
         }
     }
 }
@@ -50,6 +52,11 @@ pub fn show(
             if ui.selectable_label(selected, *label).clicked() {
                 chart_state.usbc_metric = *metric;
             }
+        }
+
+        ui.separator();
+        if ui.selectable_label(chart_state.split_charts, "Split").clicked() {
+            chart_state.split_charts = !chart_state.split_charts;
         }
     });
 
@@ -92,29 +99,72 @@ pub fn show(
         .map(|(_, l)| format!("USB-C ({l})"))
         .unwrap_or_else(|| "USB-C".into());
 
-    egui_plot::Plot::new("main_chart")
-        .height(200.0)
-        .allow_drag(false)
-        .allow_zoom(false)
-        .allow_scroll(false)
-        .show(ui, |plot_ui| {
-            if !mm_data.is_empty() {
-                plot_ui.line(
-                    egui_plot::Line::new("Multimeter", mm_data)
-                        .stroke(egui::Stroke::new(
-                            1.5,
-                            egui::Color32::from_rgb(100, 180, 255),
-                        )),
-                );
-            }
-            if !usbc_data.is_empty() {
-                plot_ui.line(
-                    egui_plot::Line::new(usbc_label, usbc_data)
-                        .stroke(egui::Stroke::new(
-                            1.5,
-                            egui::Color32::from_rgb(255, 160, 80),
-                        )),
-                );
-            }
-        });
+    if chart_state.split_charts {
+        // Two plots stacked vertically, each 50% height
+        let available_height = ui.available_height();
+        let half = available_height / 2.0 - 4.0;
+
+        egui_plot::Plot::new("mm_chart")
+            .height(half)
+            .allow_drag(false)
+            .allow_zoom(false)
+            .allow_scroll(false)
+            .show(ui, |plot_ui| {
+                if !mm_data.is_empty() {
+                    plot_ui.line(
+                        egui_plot::Line::new("Multimeter", mm_data)
+                            .stroke(egui::Stroke::new(
+                                1.5,
+                                egui::Color32::from_rgb(100, 180, 255),
+                            )),
+                    );
+                }
+            });
+
+        ui.add_space(4.0);
+
+        egui_plot::Plot::new("usbc_chart")
+            .height(half)
+            .allow_drag(false)
+            .allow_zoom(false)
+            .allow_scroll(false)
+            .show(ui, |plot_ui| {
+                if !usbc_data.is_empty() {
+                    plot_ui.line(
+                        egui_plot::Line::new(usbc_label, usbc_data)
+                            .stroke(egui::Stroke::new(
+                                1.5,
+                                egui::Color32::from_rgb(255, 160, 80),
+                            )),
+                    );
+                }
+            });
+    } else {
+        // Combined chart
+        egui_plot::Plot::new("main_chart")
+            .height(200.0)
+            .allow_drag(false)
+            .allow_zoom(false)
+            .allow_scroll(false)
+            .show(ui, |plot_ui| {
+                if !mm_data.is_empty() {
+                    plot_ui.line(
+                        egui_plot::Line::new("Multimeter", mm_data)
+                            .stroke(egui::Stroke::new(
+                                1.5,
+                                egui::Color32::from_rgb(100, 180, 255),
+                            )),
+                    );
+                }
+                if !usbc_data.is_empty() {
+                    plot_ui.line(
+                        egui_plot::Line::new(usbc_label, usbc_data)
+                            .stroke(egui::Stroke::new(
+                                1.5,
+                                egui::Color32::from_rgb(255, 160, 80),
+                            )),
+                    );
+                }
+            });
+    }
 }
