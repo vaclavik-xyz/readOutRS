@@ -1,0 +1,97 @@
+use crate::measurement_mode::MeasurementMode;
+use crate::types::{AlarmState, DeviceMeasurement};
+
+const HYSTERESIS_FRACTION: f64 = 0.01;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AlertConfiguration {
+    pub short_threshold: f64,
+    pub dcv_high_alarm_enabled: bool,
+    pub dcv_high_alarm_value: f64,
+    pub dcv_low_alarm_enabled: bool,
+    pub dcv_low_alarm_value: f64,
+}
+
+impl Default for AlertConfiguration {
+    fn default() -> Self {
+        Self {
+            short_threshold: 2.0,
+            dcv_high_alarm_enabled: false,
+            dcv_high_alarm_value: 12.0,
+            dcv_low_alarm_enabled: false,
+            dcv_low_alarm_value: 0.0,
+        }
+    }
+}
+
+pub struct AlertEvaluator;
+
+impl AlertEvaluator {
+    pub fn evaluate(
+        measurement: &DeviceMeasurement,
+        config: &AlertConfiguration,
+        previous_state: AlarmState,
+    ) -> AlarmState {
+        if measurement.is_open || measurement.is_overload {
+            return AlarmState::Open;
+        }
+
+        if Self::is_short_condition(measurement, config) {
+            return AlarmState::Short;
+        }
+
+        if measurement.mode != MeasurementMode::DcVoltage {
+            return AlarmState::None;
+        }
+
+        let Some(value) = measurement.primary_value else {
+            return AlarmState::None;
+        };
+
+        if config.dcv_high_alarm_enabled {
+            let threshold = config.dcv_high_alarm_value;
+            let clear_threshold = threshold * (1.0 - HYSTERESIS_FRACTION);
+            if value > threshold {
+                return AlarmState::HighAlarm;
+            }
+            if previous_state == AlarmState::HighAlarm && value > clear_threshold {
+                return AlarmState::HighAlarm;
+            }
+        }
+
+        if config.dcv_low_alarm_enabled {
+            let threshold = config.dcv_low_alarm_value;
+            let clear_threshold = threshold * (1.0 + HYSTERESIS_FRACTION);
+            if value < threshold {
+                return AlarmState::LowAlarm;
+            }
+            if previous_state == AlarmState::LowAlarm && value < clear_threshold {
+                return AlarmState::LowAlarm;
+            }
+        }
+
+        AlarmState::None
+    }
+
+    pub fn enrich_measurement(
+        mut measurement: DeviceMeasurement,
+        config: &AlertConfiguration,
+    ) -> DeviceMeasurement {
+        let is_short = Self::is_short_condition(&measurement, config);
+        measurement.is_short = is_short;
+        measurement
+    }
+
+    fn is_short_condition(measurement: &DeviceMeasurement, config: &AlertConfiguration) -> bool {
+        if measurement.is_overload || measurement.is_open {
+            return false;
+        }
+        let Some(value) = measurement.primary_value else {
+            return false;
+        };
+        matches!(
+            measurement.mode,
+            MeasurementMode::Continuity | MeasurementMode::Resistance | MeasurementMode::Diode
+        ) && value < config.short_threshold
+    }
+}
