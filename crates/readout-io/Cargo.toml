@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 readout-core = { workspace = true }
+readout-persistence = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
