@@ -1,6 +1,9 @@
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
-use ratatui::widgets::{Axis, Block, Borders, Chart, Dataset, GraphType};
+use ratatui::symbols::Marker;
+use ratatui::text::Line as TextLine;
+use ratatui::widgets::canvas::{Canvas, Line as CanvasLine};
+use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 use readout_core::chart_pipeline::ChartPipeline;
@@ -70,7 +73,6 @@ impl TuiChartState {
     }
 }
 
-/// Compute Y bounds (min, max) with 10% margin from a data buffer.
 fn y_bounds(buf: &[(f64, f64)]) -> [f64; 2] {
     let (lo, hi) = buf
         .iter()
@@ -81,7 +83,6 @@ fn y_bounds(buf: &[(f64, f64)]) -> [f64; 2] {
     if lo > hi {
         [0.0, 1.0]
     } else if (hi - lo).abs() < 0.001 {
-        // Flat line — add fixed margin so chart isn't squashed
         [lo - 0.5, hi + 0.5]
     } else {
         let margin = (hi - lo) * 0.1;
@@ -89,7 +90,6 @@ fn y_bounds(buf: &[(f64, f64)]) -> [f64; 2] {
     }
 }
 
-/// Compute X bounds from a data buffer.
 fn x_bounds(buf: &[(f64, f64)]) -> [f64; 2] {
     let (t_lo, t_hi) = buf
         .iter()
@@ -104,38 +104,79 @@ fn x_bounds(buf: &[(f64, f64)]) -> [f64; 2] {
     }
 }
 
-fn render_single_chart(
+/// Render a chart using Canvas with Bresenham line drawing (no scatter dots).
+fn render_canvas_chart(
     frame: &mut Frame,
     area: Rect,
     buf: &[(f64, f64)],
     title: &str,
     color: Color,
 ) {
+    if area.height < 3 || area.width < 10 {
+        return;
+    }
+
     let y = y_bounds(buf);
     let x = x_bounds(buf);
 
-    let datasets = if buf.is_empty() {
-        vec![]
-    } else {
-        vec![Dataset::default()
-            .graph_type(GraphType::Line)
-            .style(Style::default().fg(color))
-            .data(buf)]
-    };
+    // Layout: [y-axis labels (6 chars)] [canvas]
+    let chunks = Layout::horizontal([Constraint::Length(7), Constraint::Min(10)]).split(area);
 
-    let chart = Chart::new(datasets)
-        .block(Block::default().borders(Borders::ALL).title(title.to_string()))
-        .x_axis(Axis::default().bounds(x))
-        .y_axis(
-            Axis::default()
-                .bounds(y)
-                .labels(vec![
-                    ratatui::text::Line::from(format!("{:.2}", y[0])),
-                    ratatui::text::Line::from(format!("{:.2}", y[1])),
-                ]),
+    // Y-axis labels
+    let y_labels = Paragraph::new(vec![
+        TextLine::from(format!("{:>6.2}", y[1])),
+        // Fill middle with empty lines
+        TextLine::from(""),
+        TextLine::from(format!("{:>6.2}", y[0])),
+    ])
+    .style(Style::default().fg(Color::DarkGray));
+
+    // Position labels at top and bottom of chart area
+    let label_area = chunks[0];
+    if label_area.height >= 3 {
+        let top_label = Rect::new(label_area.x, label_area.y + 1, label_area.width, 1);
+        let bottom_label = Rect::new(
+            label_area.x,
+            label_area.y + label_area.height.saturating_sub(2),
+            label_area.width,
+            1,
         );
+        frame.render_widget(
+            Paragraph::new(format!("{:>6.2}", y[1])).style(Style::default().fg(Color::DarkGray)),
+            top_label,
+        );
+        frame.render_widget(
+            Paragraph::new(format!("{:>6.2}", y[0])).style(Style::default().fg(Color::DarkGray)),
+            bottom_label,
+        );
+    }
 
-    frame.render_widget(chart, area);
+    // Canvas with Bresenham lines
+    let canvas = Canvas::default()
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray))
+                .title(title.to_string())
+                .title_style(Style::default().fg(Color::White)),
+        )
+        .marker(Marker::Braille)
+        .x_bounds(x)
+        .y_bounds(y)
+        .paint(move |ctx| {
+            // Draw lines between consecutive points (Bresenham)
+            for pair in buf.windows(2) {
+                ctx.draw(&CanvasLine {
+                    x1: pair[0].0,
+                    y1: pair[0].1,
+                    x2: pair[1].0,
+                    y2: pair[1].1,
+                    color,
+                });
+            }
+        });
+
+    frame.render_widget(canvas, chunks[1]);
 }
 
 pub fn render(
@@ -146,10 +187,8 @@ pub fn render(
     chart_state: &mut TuiChartState,
 ) {
     let (range, _) = RANGE_OPTIONS[chart_state.selected_range_idx];
-    // Braille chars give 2x horizontal resolution — request more points for smoother lines
     let target_points = (area.width as usize) * 2;
 
-    // Use a shared "now" for both pipelines so they align on the same time window.
     let now = pipelines
         .values()
         .filter_map(|p| p.latest_timestamp())
@@ -157,7 +196,6 @@ pub fn render(
         .max()
         .unwrap_or(Duration::ZERO);
 
-    // Multimeter data — use smooth (averaged) downsampling for clean braille lines
     chart_state.mm_buf.clear();
     if let Some(pipeline) = pipelines.get_mut(&DeviceId::Multimeter) {
         let points = pipeline.query_smooth(range, target_points, now);
@@ -166,7 +204,6 @@ pub fn render(
             .extend(points.iter().map(|(t, v)| (t.as_secs_f64(), *v)));
     }
 
-    // USB-C data — from selected metric pipeline
     chart_state.usbc_buf.clear();
     if let Some(pipeline) = usbc_pipelines.get_mut(&chart_state.usbc_metric) {
         let points = pipeline.query_smooth(range, target_points, now);
@@ -181,7 +218,7 @@ pub fn render(
     let chunks =
         Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).split(area);
 
-    render_single_chart(
+    render_canvas_chart(
         frame,
         chunks[0],
         &chart_state.mm_buf,
@@ -189,7 +226,7 @@ pub fn render(
         Color::Cyan,
     );
 
-    render_single_chart(
+    render_canvas_chart(
         frame,
         chunks[1],
         &chart_state.usbc_buf,
