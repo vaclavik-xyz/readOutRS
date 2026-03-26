@@ -55,10 +55,11 @@ pub fn render(
 
         if device == DeviceId::UsbC {
             if let Some(current) = m.secondary_value {
-                lines.push(Line::from(format!("{current:.3} A")));
+                let unit = m.secondary_unit.as_deref().unwrap_or("A");
+                lines.push(Line::from(format_si(current, unit)));
             }
             if let Some(power) = m.power_watts {
-                lines.push(Line::from(format!("{power:.2} W")));
+                lines.push(Line::from(format_si(power, "W")));
             }
             if let Some(mwh) = m.energy_mwh {
                 lines.push(Line::from(format!("{mwh:.0} mWh")));

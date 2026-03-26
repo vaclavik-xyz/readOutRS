@@ -1,4 +1,4 @@
-use ratatui::layout::Rect;
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::widgets::{Axis, Block, Borders, Chart, Dataset, GraphType};
 use ratatui::Frame;
@@ -50,6 +50,71 @@ impl TuiChartState {
     }
 }
 
+/// Compute Y bounds (min, max) with 10% margin from a data buffer.
+fn y_bounds(buf: &[(f64, f64)]) -> [f64; 2] {
+    let (lo, hi) = buf
+        .iter()
+        .map(|(_, v)| *v)
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| {
+            (lo.min(v), hi.max(v))
+        });
+    if lo > hi {
+        [0.0, 1.0]
+    } else {
+        let margin = (hi - lo).max(0.1) * 0.1;
+        [lo - margin, hi + margin]
+    }
+}
+
+/// Compute X bounds from a data buffer.
+fn x_bounds(buf: &[(f64, f64)]) -> [f64; 2] {
+    let (t_lo, t_hi) = buf
+        .iter()
+        .map(|(t, _)| *t)
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), t| {
+            (lo.min(t), hi.max(t))
+        });
+    if t_lo > t_hi {
+        [0.0, 1.0]
+    } else {
+        [t_lo, t_hi.max(t_lo + 1.0)]
+    }
+}
+
+fn render_single_chart(
+    frame: &mut Frame,
+    area: Rect,
+    buf: &[(f64, f64)],
+    title: &str,
+    color: Color,
+) {
+    let y = y_bounds(buf);
+    let x = x_bounds(buf);
+
+    let datasets = if buf.is_empty() {
+        vec![]
+    } else {
+        vec![Dataset::default()
+            .graph_type(GraphType::Line)
+            .style(Style::default().fg(color))
+            .data(buf)]
+    };
+
+    let chart = Chart::new(datasets)
+        .block(Block::default().borders(Borders::ALL).title(title.to_string()))
+        .x_axis(Axis::default().bounds(x))
+        .y_axis(
+            Axis::default()
+                .bounds(y)
+                .labels(vec![
+                    ratatui::text::Line::from(format!("{:.1}", y[0])),
+                    ratatui::text::Line::from(format!("{:.1}", y[1])),
+                ]),
+        );
+
+    frame.render_widget(chart, area);
+}
+
 pub fn render(
     frame: &mut Frame,
     area: Rect,
@@ -83,65 +148,24 @@ pub fn render(
             .extend(points.iter().map(|(t, v)| (t.as_secs_f64(), *v)));
     }
 
-    let mut datasets = Vec::new();
-    if !chart_state.mm_buf.is_empty() {
-        datasets.push(
-            Dataset::default()
-                .name("MM")
-                .graph_type(GraphType::Line)
-                .style(Style::default().fg(Color::Cyan))
-                .data(&chart_state.mm_buf),
-        );
-    }
-    if !chart_state.usbc_buf.is_empty() {
-        datasets.push(
-            Dataset::default()
-                .name("USB-C")
-                .graph_type(GraphType::Line)
-                .style(Style::default().fg(Color::Yellow))
-                .data(&chart_state.usbc_buf),
-        );
-    }
+    let range_label = chart_state.range_label();
 
-    // Auto-scale Y axis (no allocations — fold over existing buffers)
-    let combined = chart_state.mm_buf.iter().chain(chart_state.usbc_buf.iter());
-    let (y_min, y_max) = {
-        let (lo, hi) = combined.clone().map(|(_, v)| *v).fold(
-            (f64::INFINITY, f64::NEG_INFINITY),
-            |(lo, hi), v| (lo.min(v), hi.max(v)),
-        );
-        if lo > hi {
-            (0.0, 1.0)
-        } else {
-            let margin = (hi - lo).max(0.1) * 0.1;
-            (lo - margin, hi + margin)
-        }
-    };
+    let chunks =
+        Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).split(area);
 
-    let x_bounds = {
-        let (t_lo, t_hi) = combined.map(|(t, _)| *t).fold(
-            (f64::INFINITY, f64::NEG_INFINITY),
-            |(lo, hi), t| (lo.min(t), hi.max(t)),
-        );
-        if t_lo > t_hi {
-            [0.0, 1.0]
-        } else {
-            [t_lo, t_hi.max(t_lo + 1.0)]
-        }
-    };
+    render_single_chart(
+        frame,
+        chunks[0],
+        &chart_state.mm_buf,
+        &format!(" Multimeter [{range_label}] "),
+        Color::Cyan,
+    );
 
-    let chart = Chart::new(datasets)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(format!(" Chart [{}] ", chart_state.range_label())),
-        )
-        .x_axis(Axis::default().bounds(x_bounds))
-        .y_axis(
-            Axis::default()
-                .bounds([y_min, y_max])
-                .labels(vec![ratatui::text::Line::from(format!("{y_min:.1}")), ratatui::text::Line::from(format!("{y_max:.1}"))]),
-        );
-
-    frame.render_widget(chart, area);
+    render_single_chart(
+        frame,
+        chunks[1],
+        &chart_state.usbc_buf,
+        &format!(" USB-C [{range_label}] "),
+        Color::Yellow,
+    );
 }

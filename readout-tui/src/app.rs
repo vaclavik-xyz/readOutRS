@@ -2,7 +2,7 @@ use crate::widgets;
 use crossterm::event::{Event, EventStream, KeyCode, KeyModifiers};
 use futures::StreamExt;
 use readout_core::dashboard_state::DashboardState;
-use readout_core::types::{DeviceId, RuntimeEvent};
+use readout_core::types::{ConnectionState, DeviceId, RuntimeEvent};
 use readout_io::runtime::Runtime;
 use readout_persistence::config::AppConfiguration;
 use ratatui::layout::{Constraint, Layout};
@@ -76,19 +76,50 @@ impl TuiApp {
         ])
         .split(frame.area());
 
-        // Header
+        // Header with colored connection states
+        use ratatui::style::{Color, Modifier, Style};
+        use ratatui::text::{Line, Span};
         use ratatui::widgets::{Block, Borders, Paragraph};
-        let header = Paragraph::new(format!(
-            " readout-tui | {} | MM: {:?} | USB-C: {:?}",
-            if self.state.paused {
-                "PAUSED"
-            } else {
-                "RUNNING"
-            },
-            self.state.connection_for(DeviceId::Multimeter),
-            self.state.connection_for(DeviceId::UsbC),
-        ))
-        .block(Block::default().borders(Borders::ALL).title(" readout "));
+
+        fn connection_span(label: &str, state: &ConnectionState) -> Vec<Span<'static>> {
+            let (text, color) = match state {
+                ConnectionState::Connected => ("Connected", Color::Green),
+                ConnectionState::Connecting => ("Connecting", Color::Yellow),
+                ConnectionState::Reconnecting => ("Reconnecting", Color::Yellow),
+                ConnectionState::Disconnected => ("Disconnected", Color::DarkGray),
+                ConnectionState::Error(e) => {
+                    return vec![
+                        Span::raw(format!("{label}: ")),
+                        Span::styled(
+                            format!("Error({e})"),
+                            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                        ),
+                    ];
+                }
+            };
+            vec![
+                Span::raw(format!("{label}: ")),
+                Span::styled(text.to_string(), Style::default().fg(color)),
+            ]
+        }
+
+        let status_text = if self.state.paused { "PAUSED" } else { "RUNNING" };
+        let status_color = if self.state.paused { Color::Yellow } else { Color::Green };
+
+        let mut spans: Vec<Span> = vec![
+            Span::raw(" readout-tui | "),
+            Span::styled(
+                status_text.to_string(),
+                Style::default().fg(status_color).add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" | "),
+        ];
+        spans.extend(connection_span("MM", self.state.connection_for(DeviceId::Multimeter)));
+        spans.push(Span::raw(" | "));
+        spans.extend(connection_span("USB-C", self.state.connection_for(DeviceId::UsbC)));
+
+        let header = Paragraph::new(Line::from(spans))
+            .block(Block::default().borders(Borders::ALL).title(" readout "));
         frame.render_widget(header, chunks[0]);
 
         // Device cards side by side
@@ -119,7 +150,13 @@ impl TuiApp {
         );
 
         // Status bar
-        widgets::status_bar::render(frame, chunks[3], &self.state, self.chart_state.range_label());
+        widgets::status_bar::render(
+            frame,
+            chunks[3],
+            &self.state,
+            self.chart_state.range_label(),
+            self.config.use_simulator,
+        );
     }
 }
 
