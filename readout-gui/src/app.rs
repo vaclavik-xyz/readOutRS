@@ -84,6 +84,7 @@ pub struct ReadOutApp {
     wizard: widgets::first_run_wizard::FirstRunWizard,
     popout_state: crate::popout::PopoutState,
     audio: crate::audio::AlarmAudio,
+    last_beep: Option<std::time::Instant>,
     running: bool,
     show_log_panel: bool,
     config: AppConfiguration,
@@ -114,6 +115,7 @@ impl ReadOutApp {
             wizard: widgets::first_run_wizard::FirstRunWizard::new(&config, first_run),
             popout_state: crate::popout::PopoutState::default(),
             audio: crate::audio::AlarmAudio::new(),
+            last_beep: None,
             running: !first_run,
             show_log_panel: true,
             config,
@@ -166,21 +168,34 @@ impl eframe::App for ReadOutApp {
         // Drain events from runtime
         if let Some(ref runtime) = self.runtime {
             while let Ok(event) = runtime.event_rx.try_recv() {
-                // Check for alarm events to trigger audio
-                if let RuntimeEvent::AlarmTriggered { alarm, .. } = &event {
-                    if self.config.dashboard_beep_master_enabled {
-                        let should_beep = match alarm {
-                            readout_core::types::AlarmState::Short => self.config.beep_on_short_pc,
-                            readout_core::types::AlarmState::HighAlarm
-                            | readout_core::types::AlarmState::LowAlarm => self.config.beep_on_alarm,
-                            _ => false,
-                        };
-                        if should_beep {
-                            self.audio.beep(self.config.pc_beep_volume as f32);
-                        }
-                    }
-                }
                 self.state.handle_event(event);
+            }
+        }
+
+        // Continuous alarm beep — repeat every 300ms while alarm is active
+        {
+            use readout_core::types::AlarmState;
+            let mm_alarm = self.state.alarm_for(DeviceId::Multimeter);
+            let should_beep = self.config.dashboard_beep_master_enabled
+                && match mm_alarm {
+                    AlarmState::Short => self.config.beep_on_short_pc,
+                    AlarmState::HighAlarm | AlarmState::LowAlarm => self.config.beep_on_alarm,
+                    _ => false,
+                };
+
+            if should_beep {
+                let now = std::time::Instant::now();
+                let interval = std::time::Duration::from_millis(300);
+                let should_fire = self
+                    .last_beep
+                    .map(|t| now.duration_since(t) >= interval)
+                    .unwrap_or(true);
+                if should_fire {
+                    self.audio.beep(self.config.pc_beep_volume as f32);
+                    self.last_beep = Some(now);
+                }
+            } else {
+                self.last_beep = None;
             }
         }
 

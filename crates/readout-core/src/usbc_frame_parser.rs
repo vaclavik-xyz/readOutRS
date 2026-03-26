@@ -31,8 +31,17 @@ impl UsbCFrameParser {
         // Signed conversion for shunt
         let shunt_signed: i16 = shunt_raw as i16;
 
-        let voltage = f64::from(bus_raw) * VOLTAGE_QUANTUM;
-        let current = (f64::from(shunt_signed) * CURRENT_QUANTUM).max(0.0);
+        // Apply noise floor: values within 1 LSB of zero are treated as zero
+        let voltage = if bus_raw <= 1 {
+            0.0
+        } else {
+            f64::from(bus_raw) * VOLTAGE_QUANTUM
+        };
+        let current = if shunt_signed.unsigned_abs() <= 1 {
+            0.0
+        } else {
+            (f64::from(shunt_signed) * CURRENT_QUANTUM).max(0.0)
+        };
 
         Some(UsbCFrameMeasurement { voltage, current })
     }
