@@ -17,7 +17,7 @@ async fn runtime_simulator_produces_measurements_and_shuts_down() {
     let command_tx = runtime.command_sender();
 
     let cancel_clone = cancel.clone();
-    let handle = tokio::spawn(async move {
+    let mut handle = tokio::spawn(async move {
         runtime.run(cancel_clone).await;
     });
 
@@ -47,15 +47,21 @@ async fn runtime_simulator_produces_measurements_and_shuts_down() {
     assert!(mm_count >= 5, "multimeter: {mm_count}");
     assert!(usbc_count >= 5, "usbc: {usbc_count}");
 
-    // Send stop and verify clean shutdown
+    // Send stop and verify clean shutdown via Command::Stop
     let _ = command_tx.send(Command::Stop).await;
 
-    // Fallback: cancel token in case Command::Stop doesn't work
-    cancel.cancel();
-
-    let shutdown = tokio::time::timeout(Duration::from_secs(5), handle)
-        .await
-        .expect("runtime did not shut down in time")
-        .expect("runtime task panicked");
-    let _ = shutdown;
+    // Give runtime time to process Command::Stop
+    match tokio::time::timeout(Duration::from_secs(3), &mut handle).await {
+        Ok(result) => {
+            result.expect("runtime task panicked");
+        }
+        Err(_) => {
+            // Fallback: Command::Stop didn't work, force cancel
+            cancel.cancel();
+            tokio::time::timeout(Duration::from_secs(5), handle)
+                .await
+                .expect("runtime did not shut down even after cancel")
+                .expect("runtime task panicked");
+        }
+    }
 }
