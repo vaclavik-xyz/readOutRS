@@ -1,15 +1,18 @@
+use crate::widgets;
 use crossterm::event::{Event, EventStream, KeyCode, KeyModifiers};
 use futures::StreamExt;
 use readout_core::dashboard_state::DashboardState;
-use readout_core::types::{Command, RuntimeEvent};
+use readout_core::types::{DeviceId, RuntimeEvent};
 use readout_io::runtime::Runtime;
 use readout_persistence::config::AppConfiguration;
+use ratatui::layout::{Constraint, Layout};
 use ratatui::Frame;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 pub struct TuiApp {
     pub state: DashboardState,
+    pub chart_state: widgets::chart::TuiChartState,
     pub config: AppConfiguration,
     pub should_quit: bool,
 }
@@ -18,6 +21,7 @@ impl TuiApp {
     pub fn new(config: AppConfiguration) -> Self {
         Self {
             state: DashboardState::new(),
+            chart_state: widgets::chart::TuiChartState::default(),
             config,
             should_quit: false,
         }
@@ -34,21 +38,23 @@ impl TuiApp {
                 self.should_quit = true;
             }
             KeyCode::Char('p') => self.state.paused = !self.state.paused,
+            KeyCode::Right => self.chart_state.next_range(),
+            KeyCode::Left => self.chart_state.prev_range(),
             _ => {}
         }
     }
 
     pub fn draw(&mut self, frame: &mut Frame) {
-        use ratatui::layout::{Constraint, Layout};
-        use ratatui::widgets::{Block, Borders, Paragraph};
-
         let chunks = Layout::vertical([
-            Constraint::Length(3),
-            Constraint::Min(5),
-            Constraint::Length(3),
+            Constraint::Length(3),  // header
+            Constraint::Length(8),  // device cards
+            Constraint::Min(8),    // chart
+            Constraint::Length(3), // status
         ])
         .split(frame.area());
 
+        // Header
+        use ratatui::widgets::{Block, Borders, Paragraph};
         let header = Paragraph::new(format!(
             " readout-tui | {} | MM: {:?} | USB-C: {:?}",
             if self.state.paused {
@@ -56,24 +62,41 @@ impl TuiApp {
             } else {
                 "RUNNING"
             },
-            self.state
-                .connection_for(readout_core::types::DeviceId::Multimeter),
-            self.state
-                .connection_for(readout_core::types::DeviceId::UsbC),
+            self.state.connection_for(DeviceId::Multimeter),
+            self.state.connection_for(DeviceId::UsbC),
         ))
         .block(Block::default().borders(Borders::ALL).title(" readout "));
         frame.render_widget(header, chunks[0]);
 
-        let body = Paragraph::new("Dashboard widgets — Task 23")
-            .block(Block::default().borders(Borders::ALL));
-        frame.render_widget(body, chunks[1]);
+        // Device cards side by side
+        let card_cols = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(chunks[1]);
 
-        let status = Paragraph::new(format!(
-            " Measurements: {} | Errors: {} | [q]uit [p]ause",
-            self.state.health.measurement_count, self.state.health.error_count,
-        ))
-        .block(Block::default().borders(Borders::ALL));
-        frame.render_widget(status, chunks[2]);
+        widgets::device_card::render(
+            frame,
+            card_cols[0],
+            DeviceId::Multimeter,
+            self.state.latest_measurement.get(&DeviceId::Multimeter),
+            self.state.alarm_for(DeviceId::Multimeter),
+        );
+        widgets::device_card::render(
+            frame,
+            card_cols[1],
+            DeviceId::UsbC,
+            self.state.latest_measurement.get(&DeviceId::UsbC),
+            self.state.alarm_for(DeviceId::UsbC),
+        );
+
+        // Chart
+        widgets::chart::render(
+            frame,
+            chunks[2],
+            &mut self.state.chart_pipelines,
+            &mut self.chart_state,
+        );
+
+        // Status bar
+        widgets::status_bar::render(frame, chunks[3], &self.state, self.chart_state.range_label());
     }
 }
 
@@ -149,7 +172,7 @@ pub async fn run(config: AppConfiguration) -> Result<(), Box<dyn std::error::Err
             event = event_stream.next() => {
                 match event {
                     Some(Ok(Event::Key(key))) => app.handle_key(key.code, key.modifiers),
-                    Some(Ok(_)) => {} // resize, mouse, etc — ignore
+                    Some(Ok(_)) => {}
                     Some(Err(e)) => {
                         tracing::warn!("terminal event error: {e}");
                         break;
@@ -160,10 +183,8 @@ pub async fn run(config: AppConfiguration) -> Result<(), Box<dyn std::error::Err
         }
     }
 
-    // Graceful shutdown: cancel runtime and wait for it
     cancel.cancel();
     let _ = tokio::time::timeout(Duration::from_secs(5), runtime_handle).await;
-    // TerminalGuard::drop restores terminal
 
     Ok(())
 }

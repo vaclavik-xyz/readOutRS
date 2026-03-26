@@ -1,4 +1,5 @@
 mod app;
+mod widgets;
 
 use clap::Parser;
 use readout_persistence::config_store;
