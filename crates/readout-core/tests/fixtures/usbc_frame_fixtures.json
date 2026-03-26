@@ -1,0 +1,26 @@
+[
+  {
+    "frame": "03E80BB8",
+    "valid": true,
+    "expectedVoltage": 9.375,
+    "expectedCurrent": 0.2
+  },
+  {
+    "frame": "FFFF0BB8",
+    "valid": true,
+    "expectedVoltage": 9.375,
+    "expectedCurrent": 0.0
+  },
+  {
+    "frame": "ABC",
+    "valid": false,
+    "expectedVoltage": null,
+    "expectedCurrent": null
+  },
+  {
+    "frame": "ZZZZZZZZ",
+    "valid": false,
+    "expectedVoltage": null,
+    "expectedCurrent": null
+  }
+]
