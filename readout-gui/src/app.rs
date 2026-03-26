@@ -216,8 +216,12 @@ impl eframe::App for ReadOutApp {
         // --- Header ---
         let mut paused = self.state.paused;
         let mut header_action = widgets::header::HeaderAction::None;
+        let header_state = widgets::header::HeaderState {
+            beep_enabled: self.config.dashboard_beep_master_enabled,
+            log_visible: self.show_log_panel,
+        };
         egui::TopBottomPanel::top("header").show(ctx, |ui| {
-            header_action = widgets::header::show(ui, &self.state, self.running, &mut paused);
+            header_action = widgets::header::show(ui, &self.state, self.running, &mut paused, &header_state);
         });
         self.state.paused = paused;
 
@@ -230,8 +234,19 @@ impl eframe::App for ReadOutApp {
                 }
                 self.running = false;
             }
-            widgets::header::HeaderAction::Start => {
-                // Restart not yet implemented
+            widgets::header::HeaderAction::OpenSettings => {
+                self.settings_panel.open_with(&self.config);
+            }
+            widgets::header::HeaderAction::ToggleBeep => {
+                self.config.dashboard_beep_master_enabled = !self.config.dashboard_beep_master_enabled;
+                let path = self.config_path.clone();
+                let config = self.config.clone();
+                std::thread::spawn(move || {
+                    let _ = readout_persistence::config_store::save(&config, &path);
+                });
+            }
+            widgets::header::HeaderAction::ToggleLog => {
+                self.show_log_panel = !self.show_log_panel;
             }
             widgets::header::HeaderAction::None => {}
         }
