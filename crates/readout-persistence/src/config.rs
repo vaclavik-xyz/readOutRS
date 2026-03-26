@@ -8,7 +8,17 @@ where
     T: Default + for<'a> TryFrom<&'a str>,
 {
     let s = String::deserialize(deserializer)?;
-    T::try_from(s.as_str()).or(Ok(T::default()))
+    match T::try_from(s.as_str()) {
+        Ok(v) => Ok(v),
+        Err(_) => {
+            tracing::warn!(
+                value = %s,
+                r#type = std::any::type_name::<T>(),
+                "unknown config enum value, using default"
+            );
+            Ok(T::default())
+        }
+    }
 }
 
 macro_rules! case_insensitive_enum {

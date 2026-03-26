@@ -75,21 +75,37 @@ impl CsvLogger {
     }
 
     async fn writer_task(path: PathBuf, mut rx: mpsc::Receiver<CsvMessage>) {
-        use std::io::Write;
+        use std::io::{BufWriter, Write};
 
-        let file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path);
-
-        let Ok(mut file) = file else {
-            tracing::error!("Failed to open CSV file: {:?}", path);
-            return;
+        let file = match tokio::task::spawn_blocking({
+            let path = path.clone();
+            move || {
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&path)
+            }
+        })
+        .await
+        {
+            Ok(Ok(f)) => f,
+            _ => {
+                tracing::error!("Failed to open CSV file: {:?}", path);
+                return;
+            }
         };
 
+        let mut writer = BufWriter::new(file);
+
         // Write header if file is empty
-        if file.metadata().map(|m| m.len() == 0).unwrap_or(true) {
-            let _ = writeln!(file, "{CSV_HEADER}");
+        if writer
+            .get_ref()
+            .metadata()
+            .map(|m| m.len() == 0)
+            .unwrap_or(true)
+        {
+            let _ = writeln!(writer, "{CSV_HEADER}");
+            let _ = writer.flush();
         }
 
         while let Some(msg) = rx.recv().await {
@@ -106,22 +122,18 @@ impl CsvLogger {
                         row.is_open,
                         row.is_short,
                     );
-                    let _ = writeln!(file, "{line}");
-                    let _ = file.flush();
+                    let _ = writeln!(writer, "{line}");
                 }
                 CsvMessage::Flush(done) => {
-                    let _ = file.flush();
+                    let _ = writer.flush();
                     let _ = done.send(());
                 }
             }
         }
+        // Drain complete — flush remaining buffered data
+        let _ = writer.flush();
     }
 }
 
-impl Drop for CsvLogger {
-    fn drop(&mut self) {
-        if let Some(handle) = self.task_handle.take() {
-            handle.abort();
-        }
-    }
-}
+// When CsvLogger is dropped, self.tx is dropped automatically, closing the channel.
+// The writer task will drain remaining messages via recv() returning None, then flush.

@@ -3,7 +3,7 @@ use std::time::Duration;
 
 #[test]
 fn empty_pipeline_returns_empty() {
-    let pipeline = ChartPipeline::new(1000);
+    let mut pipeline = ChartPipeline::new(1000);
     let points = pipeline.query(Duration::from_secs(120), 800);
     assert!(points.is_empty());
 }

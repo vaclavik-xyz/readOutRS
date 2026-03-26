@@ -8,6 +8,7 @@ pub struct ChartPipeline {
     capacity: usize,
     write_pos: usize,
     count: usize,
+    scratch: Vec<ChartPoint>,
 }
 
 impl ChartPipeline {
@@ -18,6 +19,7 @@ impl ChartPipeline {
             capacity,
             write_pos: 0,
             count: 0,
+            scratch: Vec::with_capacity(capacity),
         }
     }
 
@@ -35,7 +37,7 @@ impl ChartPipeline {
     }
 
     /// Query with automatic "now" = latest sample timestamp.
-    pub fn query(&self, time_range: Duration, target_points: usize) -> Vec<ChartPoint> {
+    pub fn query(&mut self, time_range: Duration, target_points: usize) -> Vec<ChartPoint> {
         if self.count == 0 {
             return Vec::new();
         }
@@ -49,7 +51,7 @@ impl ChartPipeline {
     }
 
     pub fn query_with_now(
-        &self,
+        &mut self,
         time_range: Duration,
         target_points: usize,
         now: Duration,
@@ -60,19 +62,19 @@ impl ChartPipeline {
 
         let cutoff = now.saturating_sub(time_range);
 
-        // Collect samples in chronological order within time range
-        let samples = self.ordered_samples_after(cutoff);
+        // Collect samples into scratch buffer (reused across calls)
+        self.collect_samples_after(cutoff);
 
-        if samples.len() <= target_points {
-            return samples;
+        if self.scratch.len() <= target_points {
+            return self.scratch.clone();
         }
 
         // Min-max downsample
-        Self::min_max_downsample(&samples, target_points)
+        Self::min_max_downsample(&self.scratch, target_points)
     }
 
-    fn ordered_samples_after(&self, cutoff: Duration) -> Vec<ChartPoint> {
-        let mut result = Vec::new();
+    fn collect_samples_after(&mut self, cutoff: Duration) {
+        self.scratch.clear();
         let start = if self.count < self.capacity {
             0
         } else {
@@ -83,10 +85,9 @@ impl ChartPipeline {
             let idx = (start + i) % self.capacity;
             let sample = self.buffer[idx];
             if sample.0 >= cutoff {
-                result.push(sample);
+                self.scratch.push(sample);
             }
         }
-        result
     }
 
     fn min_max_downsample(samples: &[ChartPoint], target_points: usize) -> Vec<ChartPoint> {

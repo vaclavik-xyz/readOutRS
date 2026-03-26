@@ -52,22 +52,23 @@ impl ObsOutputWriter {
                 }
                 _ = tick.tick() => {
                     if let Some(ref text) = latest {
-                        let _ = std::fs::write(&path, text);
+                        let text = text.clone();
+                        let path = path.clone();
+                        let _ = tokio::task::spawn_blocking(move || {
+                            std::fs::write(&path, &text)
+                        }).await;
                     }
                 }
             }
         }
         // Final write on shutdown
-        if let Some(ref text) = latest {
-            let _ = std::fs::write(&path, text);
+        if let Some(text) = latest {
+            let _ = tokio::task::spawn_blocking(move || {
+                std::fs::write(&path, &text)
+            }).await;
         }
     }
 }
 
-impl Drop for ObsOutputWriter {
-    fn drop(&mut self) {
-        if let Some(handle) = self.task_handle.take() {
-            handle.abort();
-        }
-    }
-}
+// When ObsOutputWriter is dropped, self.tx is dropped automatically, closing the channel.
+// The writer task will break from the loop, write final value, and exit.

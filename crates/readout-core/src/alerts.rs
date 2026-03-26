@@ -27,16 +27,20 @@ impl Default for AlertConfiguration {
 pub struct AlertEvaluator;
 
 impl AlertEvaluator {
+    /// Evaluate alarm state and enrich measurement with fault flags in one call.
     pub fn evaluate(
-        measurement: &DeviceMeasurement,
+        measurement: &mut DeviceMeasurement,
         config: &AlertConfiguration,
         previous_state: AlarmState,
     ) -> AlarmState {
+        let is_short = Self::is_short_condition(measurement, config);
+        measurement.is_short = is_short;
+
         if measurement.is_open || measurement.is_overload {
             return AlarmState::Open;
         }
 
-        if Self::is_short_condition(measurement, config) {
+        if is_short {
             return AlarmState::Short;
         }
 
@@ -71,15 +75,6 @@ impl AlertEvaluator {
         }
 
         AlarmState::None
-    }
-
-    pub fn enrich_measurement(
-        mut measurement: DeviceMeasurement,
-        config: &AlertConfiguration,
-    ) -> DeviceMeasurement {
-        let is_short = Self::is_short_condition(&measurement, config);
-        measurement.is_short = is_short;
-        measurement
     }
 
     fn is_short_condition(measurement: &DeviceMeasurement, config: &AlertConfiguration) -> bool {
