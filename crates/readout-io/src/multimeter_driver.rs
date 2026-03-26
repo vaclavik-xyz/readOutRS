@@ -9,6 +9,7 @@ pub struct MultimeterDriver<T: ScpiTransport> {
     transport: T,
     current_mode: String,
     alert_config: AlertConfiguration,
+    alarm_state: readout_core::types::AlarmState,
 }
 
 impl<T: ScpiTransport> MultimeterDriver<T> {
@@ -17,6 +18,7 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
             transport,
             current_mode: String::new(),
             alert_config: AlertConfiguration::default(),
+            alarm_state: readout_core::types::AlarmState::None,
         }
     }
 
@@ -40,8 +42,10 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
 
     pub async fn poll(&mut self) -> Result<DeviceMeasurement, TransportError> {
         // Query current mode
-        if let Ok(Some(mode)) = self.transport.query("FUNC?").await {
-            self.current_mode = mode;
+        match self.transport.query("FUNC?").await {
+            Ok(Some(mode)) => self.current_mode = mode,
+            Ok(None) => {} // keep previous mode
+            Err(e) => tracing::warn!("FUNC? query failed, using previous mode: {e}"),
         }
 
         // Query measurement
@@ -73,8 +77,8 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
             is_short: false,
         };
 
-        // Enrich with alert info
-        let _ = AlertEvaluator::evaluate(&mut measurement, &self.alert_config, readout_core::types::AlarmState::None);
+        // Evaluate alarm state with hysteresis
+        self.alarm_state = AlertEvaluator::evaluate(&mut measurement, &self.alert_config, self.alarm_state);
 
         Ok(measurement)
     }

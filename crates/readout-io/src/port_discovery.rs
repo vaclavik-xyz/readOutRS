@@ -27,7 +27,10 @@ impl PortDiscovery {
     pub fn scan() -> Vec<PortCandidate> {
         let ports = match serialport::available_ports() {
             Ok(p) => p,
-            Err(_) => return Vec::new(),
+            Err(e) => {
+                tracing::warn!("Failed to enumerate serial ports: {e}");
+                return Vec::new();
+            }
         };
 
         ports

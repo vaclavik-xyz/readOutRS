@@ -5,6 +5,10 @@ use readout_core::types::{DeviceId, DeviceMeasurement};
 use readout_core::usbc_frame_parser::UsbCFrameParser;
 use std::time::{Duration, Instant};
 
+const USBC_UNIT_V: &str = "V";
+const USBC_UNIT_A: &str = "A";
+const USBC_MODE_STRING: &str = "USB-C";
+
 pub struct UsbCDriver<T: DeviceTransport> {
     transport: T,
     energy: EnergyAccumulator,
@@ -47,14 +51,14 @@ impl<T: DeviceTransport> UsbCDriver<T> {
             timestamp: Instant::now(),
             device: DeviceId::UsbC,
             primary_value: Some(parsed.voltage),
-            primary_unit: "V".into(),
+            primary_unit: USBC_UNIT_V.into(),
             secondary_value: Some(parsed.current),
-            secondary_unit: Some("A".into()),
+            secondary_unit: Some(USBC_UNIT_A.into()),
             power_watts: Some(snap.power_watts),
             energy_mwh: Some(snap.energy_mwh),
             energy_mah: Some(snap.energy_mah),
             mode: MeasurementMode::DcVoltage,
-            mode_string: "USB-C".into(),
+            mode_string: USBC_MODE_STRING.into(),
             is_overload: false,
             is_open: false,
             is_short: false,

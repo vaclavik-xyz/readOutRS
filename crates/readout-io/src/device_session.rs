@@ -2,6 +2,11 @@ use crate::transport::DeviceTransport;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+/// Send an event, returning false if the channel is closed (receiver dropped).
+async fn send_event(tx: &mpsc::Sender<DeviceSessionEvent>, event: DeviceSessionEvent) -> bool {
+    tx.send(event).await.is_ok()
+}
+
 // --- ReconnectPolicy ---
 
 #[derive(Debug, Clone)]
@@ -29,7 +34,7 @@ impl ReconnectPolicy {
             return 0.0;
         }
         let raw = self.initial_delay_secs * self.multiplier.powi(attempt as i32 - 1);
-        raw.min(self.max_delay_secs)
+        raw.min(self.max_delay_secs).clamp(0.0, 86_400.0)
     }
 }
 
@@ -71,40 +76,43 @@ impl DeviceSession {
             }
 
             // --- Connecting ---
-            let _ = event_tx
-                .send(DeviceSessionEvent::StateChanged(if attempt == 0 {
-                    SessionState::Connecting
-                } else {
-                    SessionState::Reconnecting { attempt }
-                }))
-                .await;
+            if !send_event(&event_tx, DeviceSessionEvent::StateChanged(if attempt == 0 {
+                SessionState::Connecting
+            } else {
+                SessionState::Reconnecting { attempt }
+            })).await {
+                return; // channel closed
+            }
 
             match transport.open().await {
                 Ok(()) => {
                     attempt = 0;
-                    let _ = event_tx
-                        .send(DeviceSessionEvent::StateChanged(SessionState::Connected))
-                        .await;
+                    if !send_event(&event_tx, DeviceSessionEvent::StateChanged(SessionState::Connected)).await {
+                        transport.close().await;
+                        return;
+                    }
 
                     // --- Read loop ---
                     loop {
                         tokio::select! {
                             _ = cancel.cancelled() => {
                                 transport.close().await;
-                                let _ = event_tx.send(DeviceSessionEvent::StateChanged(SessionState::Disconnected)).await;
+                                let _ = send_event(&event_tx, DeviceSessionEvent::StateChanged(SessionState::Disconnected)).await;
                                 return;
                             }
                             result = transport.read_frame() => {
                                 match result {
                                     Ok(Some(frame)) => {
-                                        let _ = event_tx.send(DeviceSessionEvent::FrameReceived(frame)).await;
+                                        if !send_event(&event_tx, DeviceSessionEvent::FrameReceived(frame)).await {
+                                            transport.close().await;
+                                            return;
+                                        }
                                     }
                                     Ok(None) => {
-                                        // No data, continue
+                                        tokio::task::yield_now().await;
                                     }
                                     Err(err) => {
-                                        let msg: String = err.to_string();
-                                        let _ = event_tx.send(DeviceSessionEvent::TransportError(msg)).await;
+                                        let _ = send_event(&event_tx, DeviceSessionEvent::TransportError(err.to_string())).await;
                                         transport.close().await;
                                         break;
                                     }
@@ -114,37 +122,34 @@ impl DeviceSession {
                     }
                 }
                 Err(err) => {
-                    let msg: String = err.to_string();
-                    let _ = event_tx
-                        .send(DeviceSessionEvent::TransportError(msg))
-                        .await;
+                    if !send_event(&event_tx, DeviceSessionEvent::TransportError(err.to_string())).await {
+                        return;
+                    }
                 }
             }
 
             // --- Retry logic ---
             if !policy.enabled {
-                let _ = event_tx
-                    .send(DeviceSessionEvent::StateChanged(SessionState::Disconnected))
-                    .await;
+                let _ = send_event(&event_tx, DeviceSessionEvent::StateChanged(SessionState::Disconnected)).await;
                 break;
             }
 
             attempt += 1;
             let delay = policy.delay_for_attempt(attempt);
 
-            let _ = event_tx
-                .send(DeviceSessionEvent::StateChanged(
-                    SessionState::WaitingRetry {
-                        attempt,
-                        delay_secs: delay,
-                    },
-                ))
-                .await;
+            if !send_event(&event_tx, DeviceSessionEvent::StateChanged(
+                SessionState::WaitingRetry {
+                    attempt,
+                    delay_secs: delay,
+                },
+            )).await {
+                return;
+            }
 
             if delay > 0.0 {
                 tokio::select! {
                     _ = cancel.cancelled() => {
-                        let _ = event_tx.send(DeviceSessionEvent::StateChanged(SessionState::Disconnected)).await;
+                        let _ = send_event(&event_tx, DeviceSessionEvent::StateChanged(SessionState::Disconnected)).await;
                         return;
                     }
                     _ = tokio::time::sleep(std::time::Duration::from_secs_f64(delay)) => {}
@@ -152,10 +157,6 @@ impl DeviceSession {
             }
         }
 
-        let _ = event_tx
-            .send(DeviceSessionEvent::StateChanged(
-                SessionState::Disconnected,
-            ))
-            .await;
+        let _ = send_event(&event_tx, DeviceSessionEvent::StateChanged(SessionState::Disconnected)).await;
     }
 }
