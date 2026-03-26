@@ -35,7 +35,7 @@ async fn main() {
         config.use_simulator = true;
     }
 
-    if let Err(e) = app::run(config).await {
+    if let Err(e) = app::run(config, config_path).await {
         eprintln!("Error: {e}");
         std::process::exit(1);
     }

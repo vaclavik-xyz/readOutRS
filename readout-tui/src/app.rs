@@ -13,16 +13,21 @@ use tokio_util::sync::CancellationToken;
 pub struct TuiApp {
     pub state: DashboardState,
     pub chart_state: widgets::chart::TuiChartState,
+    pub settings_screen: widgets::settings::TuiSettingsScreen,
     pub config: AppConfiguration,
+    pub config_path: std::path::PathBuf,
     pub should_quit: bool,
 }
 
 impl TuiApp {
-    pub fn new(config: AppConfiguration) -> Self {
+    pub fn new(config: AppConfiguration, config_path: std::path::PathBuf) -> Self {
+        let settings_screen = widgets::settings::TuiSettingsScreen::new(&config);
         Self {
             state: DashboardState::new(),
             chart_state: widgets::chart::TuiChartState::default(),
+            settings_screen,
             config,
+            config_path,
             should_quit: false,
         }
     }
@@ -32,12 +37,27 @@ impl TuiApp {
     }
 
     pub fn handle_key(&mut self, key: KeyCode, modifiers: KeyModifiers) {
+        // Settings screen handles its own keys when active
+        if self.settings_screen.active {
+            match self.settings_screen.handle_key(key) {
+                widgets::settings::SettingsAction::Save(new_config) => {
+                    if let Err(e) = readout_persistence::config_store::save(&new_config, &self.config_path) {
+                        tracing::error!("Failed to save config: {e:?}");
+                    }
+                    self.config = new_config;
+                }
+                widgets::settings::SettingsAction::None => {}
+            }
+            return;
+        }
+
         match key {
             KeyCode::Char('q') => self.should_quit = true,
             KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
                 self.should_quit = true;
             }
             KeyCode::Char('p') => self.state.paused = !self.state.paused,
+            KeyCode::Char('s') => self.settings_screen.open(&self.config),
             KeyCode::Right => self.chart_state.next_range(),
             KeyCode::Left => self.chart_state.prev_range(),
             _ => {}
@@ -45,6 +65,11 @@ impl TuiApp {
     }
 
     pub fn draw(&mut self, frame: &mut Frame) {
+        if self.settings_screen.active {
+            self.settings_screen.draw(frame, frame.area());
+            return;
+        }
+
         let chunks = Layout::vertical([
             Constraint::Length(3),  // header
             Constraint::Length(8),  // device cards
@@ -129,7 +154,7 @@ impl Drop for TerminalGuard {
     }
 }
 
-pub async fn run(config: AppConfiguration) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn run(config: AppConfiguration, config_path: std::path::PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let _guard = TerminalGuard::new()?;
 
     let backend = ratatui::backend::CrosstermBackend::new(std::io::stdout());
@@ -144,7 +169,7 @@ pub async fn run(config: AppConfiguration) -> Result<(), Box<dyn std::error::Err
         runtime.run(runtime_cancel).await;
     });
 
-    let mut app = TuiApp::new(config);
+    let mut app = TuiApp::new(config, config_path);
     let mut render_interval = tokio::time::interval(Duration::from_millis(50));
     let mut event_stream = EventStream::new();
 
