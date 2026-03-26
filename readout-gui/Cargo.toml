@@ -10,8 +10,8 @@ readout-persistence = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 eframe = "0.33"
-egui_plot = "0.33"
 egui = "0.33"
+egui_plot = "0.34"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 clap = { workspace = true }

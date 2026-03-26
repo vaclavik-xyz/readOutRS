@@ -11,6 +11,7 @@ pub struct ReadOutApp {
     cancel: CancellationToken,
     bg_thread: Option<std::thread::JoinHandle<()>>,
     state: DashboardState,
+    chart_state: widgets::chart::ChartState,
     running: bool,
     show_log_panel: bool,
     config: AppConfiguration,
@@ -62,6 +63,7 @@ impl ReadOutApp {
             cancel,
             bg_thread: Some(bg_thread),
             state: DashboardState::new(),
+            chart_state: widgets::chart::ChartState::default(),
             running: true,
             show_log_panel: true,
             config,
@@ -171,7 +173,7 @@ impl eframe::App for ReadOutApp {
             });
 
             ui.separator();
-            ui.colored_label(egui::Color32::GRAY, "Chart placeholder — Task 18");
+            widgets::chart::show(ui, &mut self.state.chart_pipelines, &mut self.chart_state);
         });
     }
 }
