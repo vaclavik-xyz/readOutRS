@@ -6,7 +6,8 @@ use tokio_util::sync::CancellationToken;
 pub struct ReadOutApp {
     event_rx: std::sync::mpsc::Receiver<RuntimeEvent>,
     command_tx: tokio::sync::mpsc::Sender<Command>,
-    _cancel: CancellationToken,
+    cancel: CancellationToken,
+    bg_thread: Option<std::thread::JoinHandle<()>>,
     config: AppConfiguration,
 }
 
@@ -21,7 +22,7 @@ impl ReadOutApp {
         // Bridge: tokio broadcast → std::sync::mpsc → egui
         let ctx_clone = ctx.clone();
         let cancel_clone = cancel.clone();
-        std::thread::spawn(move || {
+        let bg_thread = std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
             rt.block_on(async move {
                 let runtime_cancel = cancel_clone.clone();
@@ -52,7 +53,8 @@ impl ReadOutApp {
         Self {
             event_rx: std_rx,
             command_tx,
-            _cancel: cancel,
+            cancel,
+            bg_thread: Some(bg_thread),
             config,
         }
     }
@@ -63,13 +65,23 @@ impl ReadOutApp {
     }
 }
 
+impl Drop for ReadOutApp {
+    fn drop(&mut self) {
+        self.cancel.cancel();
+        if let Some(handle) = self.bg_thread.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
 impl eframe::App for ReadOutApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         while let Ok(_event) = self.event_rx.try_recv() {
             // TODO: dispatch to DashboardState in Task 17
         }
 
-        ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        // Repaint at ~4 Hz for status updates; data-driven repaints come from bridge thread
+        ctx.request_repaint_after(std::time::Duration::from_millis(250));
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("readout-gui");
