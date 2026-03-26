@@ -36,6 +36,19 @@ impl ChartPipeline {
         self.count = 0;
     }
 
+    /// Returns the timestamp of the most recent sample, or None if empty.
+    pub fn latest_timestamp(&self) -> Option<Duration> {
+        if self.count == 0 {
+            return None;
+        }
+        let latest_idx = if self.write_pos == 0 {
+            self.capacity - 1
+        } else {
+            self.write_pos - 1
+        };
+        Some(self.buffer[latest_idx].0)
+    }
+
     /// Query with automatic "now" = latest sample timestamp.
     pub fn query(&mut self, time_range: Duration, target_points: usize) -> Vec<ChartPoint> {
         if self.count == 0 {

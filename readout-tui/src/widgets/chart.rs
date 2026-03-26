@@ -59,10 +59,17 @@ pub fn render(
     let (range, _) = RANGE_OPTIONS[chart_state.selected_range_idx];
     let target_points = area.width as usize;
 
+    // Use a shared "now" for both pipelines so they align on the same time window.
+    let now = pipelines
+        .values()
+        .filter_map(|p| p.latest_timestamp())
+        .max()
+        .unwrap_or(Duration::ZERO);
+
     // Update buffers
     chart_state.mm_buf.clear();
     if let Some(pipeline) = pipelines.get_mut(&DeviceId::Multimeter) {
-        let points = pipeline.query(range, target_points);
+        let points = pipeline.query_with_now(range, target_points, now);
         chart_state
             .mm_buf
             .extend(points.iter().map(|(t, v)| (t.as_secs_f64(), *v)));
@@ -70,7 +77,7 @@ pub fn render(
 
     chart_state.usbc_buf.clear();
     if let Some(pipeline) = pipelines.get_mut(&DeviceId::UsbC) {
-        let points = pipeline.query(range, target_points);
+        let points = pipeline.query_with_now(range, target_points, now);
         chart_state
             .usbc_buf
             .extend(points.iter().map(|(t, v)| (t.as_secs_f64(), *v)));

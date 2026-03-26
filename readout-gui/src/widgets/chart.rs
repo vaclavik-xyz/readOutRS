@@ -41,12 +41,19 @@ pub fn show(
     let (range, _) = RANGE_OPTIONS[chart_state.selected_range_idx];
     let target_points = (ui.available_width() as usize).max(100);
 
+    // Use a shared "now" for both pipelines so they align on the same time window.
+    let now = pipelines
+        .values()
+        .filter_map(|p| p.latest_timestamp())
+        .max()
+        .unwrap_or(Duration::ZERO);
+
     // Query and convert to plot format — allocates per frame, unavoidable since
     // egui_plot::Line::new requires owned Vec (PlotPoints doesn't accept slices).
     let mm_data: Vec<[f64; 2]> = pipelines
         .get_mut(&DeviceId::Multimeter)
         .map(|p| {
-            p.query(range, target_points)
+            p.query_with_now(range, target_points, now)
                 .iter()
                 .map(|(t, v)| [t.as_secs_f64(), *v])
                 .collect()
@@ -56,7 +63,7 @@ pub fn show(
     let usbc_data: Vec<[f64; 2]> = pipelines
         .get_mut(&DeviceId::UsbC)
         .map(|p| {
-            p.query(range, target_points)
+            p.query_with_now(range, target_points, now)
                 .iter()
                 .map(|(t, v)| [t.as_secs_f64(), *v])
                 .collect()
