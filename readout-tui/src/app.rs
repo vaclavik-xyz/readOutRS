@@ -170,6 +170,7 @@ pub async fn run(config: AppConfiguration, config_path: std::path::PathBuf) -> R
     let mut app = TuiApp::new(config, config_path);
     let mut render_interval = tokio::time::interval(Duration::from_millis(50));
     let mut event_stream = EventStream::new();
+    let mut save_handle: Option<tokio::task::JoinHandle<()>> = None;
 
     loop {
         // Drain runtime events
@@ -197,11 +198,11 @@ pub async fn run(config: AppConfiguration, config_path: std::path::PathBuf) -> R
                     Some(Ok(Event::Key(key))) => {
                         if let Some(new_config) = app.handle_key(key.code, key.modifiers) {
                             let path = app.config_path.clone();
-                            tokio::task::spawn_blocking(move || {
+                            save_handle = Some(tokio::task::spawn_blocking(move || {
                                 if let Err(e) = readout_persistence::config_store::save(&new_config, &path) {
                                     tracing::error!("Failed to save config: {e:?}");
                                 }
-                            });
+                            }));
                         }
                     }
                     Some(Ok(_)) => {}
@@ -213,6 +214,11 @@ pub async fn run(config: AppConfiguration, config_path: std::path::PathBuf) -> R
                 }
             }
         }
+    }
+
+    // Wait for pending config save before shutdown
+    if let Some(h) = save_handle.take() {
+        let _ = h.await;
     }
 
     cancel.cancel();
