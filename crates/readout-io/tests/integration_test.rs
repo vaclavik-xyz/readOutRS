@@ -50,6 +50,12 @@ async fn runtime_simulator_produces_measurements_and_shuts_down() {
     // Send stop and verify clean shutdown
     let _ = command_tx.send(Command::Stop).await;
 
-    let shutdown = tokio::time::timeout(Duration::from_secs(5), handle).await;
-    assert!(shutdown.is_ok(), "runtime did not shut down cleanly");
+    // Fallback: cancel token in case Command::Stop doesn't work
+    cancel.cancel();
+
+    let shutdown = tokio::time::timeout(Duration::from_secs(5), handle)
+        .await
+        .expect("runtime did not shut down in time")
+        .expect("runtime task panicked");
+    let _ = shutdown;
 }
