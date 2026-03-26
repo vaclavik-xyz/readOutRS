@@ -157,10 +157,10 @@ pub fn render(
         .max()
         .unwrap_or(Duration::ZERO);
 
-    // Multimeter data
+    // Multimeter data — use smooth (averaged) downsampling for clean braille lines
     chart_state.mm_buf.clear();
     if let Some(pipeline) = pipelines.get_mut(&DeviceId::Multimeter) {
-        let points = pipeline.query_with_now(range, target_points, now);
+        let points = pipeline.query_smooth(range, target_points, now);
         chart_state
             .mm_buf
             .extend(points.iter().map(|(t, v)| (t.as_secs_f64(), *v)));
@@ -169,7 +169,7 @@ pub fn render(
     // USB-C data — from selected metric pipeline
     chart_state.usbc_buf.clear();
     if let Some(pipeline) = usbc_pipelines.get_mut(&chart_state.usbc_metric) {
-        let points = pipeline.query_with_now(range, target_points, now);
+        let points = pipeline.query_smooth(range, target_points, now);
         chart_state
             .usbc_buf
             .extend(points.iter().map(|(t, v)| (t.as_secs_f64(), *v)));

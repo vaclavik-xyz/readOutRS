@@ -86,6 +86,58 @@ impl ChartPipeline {
         Self::min_max_downsample(&self.scratch, target_points)
     }
 
+    /// Query with averaged downsampling — produces smoother lines for TUI braille rendering.
+    pub fn query_smooth(
+        &mut self,
+        time_range: Duration,
+        target_points: usize,
+        now: Duration,
+    ) -> Vec<ChartPoint> {
+        if self.count == 0 {
+            return Vec::new();
+        }
+
+        let cutoff = now.saturating_sub(time_range);
+        self.collect_samples_after(cutoff);
+
+        if self.scratch.len() <= target_points {
+            return self.scratch.clone();
+        }
+
+        Self::average_downsample(&self.scratch, target_points)
+    }
+
+    fn average_downsample(samples: &[ChartPoint], target_points: usize) -> Vec<ChartPoint> {
+        if target_points == 0 {
+            return Vec::new();
+        }
+        let bucket_size = samples.len() as f64 / target_points as f64;
+        let mut result = Vec::with_capacity(target_points);
+
+        for b in 0..target_points {
+            let start = (b as f64 * bucket_size) as usize;
+            let end = (((b + 1) as f64) * bucket_size) as usize;
+            let end = end.min(samples.len());
+
+            if start >= end {
+                continue;
+            }
+
+            let mut sum_t = 0.0f64;
+            let mut sum_v = 0.0f64;
+            let count = (end - start) as f64;
+
+            for i in start..end {
+                sum_t += samples[i].0.as_secs_f64();
+                sum_v += samples[i].1;
+            }
+
+            result.push((Duration::from_secs_f64(sum_t / count), sum_v / count));
+        }
+
+        result
+    }
+
     fn collect_samples_after(&mut self, cutoff: Duration) {
         self.scratch.clear();
         let start = if self.count < self.capacity {
