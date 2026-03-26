@@ -14,6 +14,7 @@ pub struct SimulatedScpiTransport {
 
 impl SimulatedScpiTransport {
     pub fn new(sample_rate_hz: u32) -> Self {
+        assert!(sample_rate_hz > 0, "sample_rate_hz must be > 0");
         Self {
             sample_rate_hz,
             is_open: false,
