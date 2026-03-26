@@ -25,6 +25,8 @@ fn main() {
         .config
         .unwrap_or_else(config_store::default_config_path);
 
+    let first_run = !config_path.exists();
+
     let mut config = config_store::load(&config_path).unwrap_or_else(|e| {
         tracing::warn!("Failed to load config: {:?}, using defaults", e);
         readout_persistence::config::AppConfiguration::default()
@@ -45,7 +47,7 @@ fn main() {
         "readout",
         options,
         Box::new(move |cc| {
-            Ok(Box::new(app::ReadOutApp::new(config, config_path, &cc.egui_ctx)))
+            Ok(Box::new(app::ReadOutApp::new(config, config_path, first_run, &cc.egui_ctx)))
         }),
     )
     .expect("eframe run");

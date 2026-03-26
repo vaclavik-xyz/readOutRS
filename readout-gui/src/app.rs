@@ -15,6 +15,7 @@ pub struct ReadOutApp {
     state: DashboardState,
     chart_state: widgets::chart::ChartState,
     settings_panel: widgets::settings::SettingsPanel,
+    wizard: widgets::first_run_wizard::FirstRunWizard,
     running: bool,
     show_log_panel: bool,
     config: AppConfiguration,
@@ -22,7 +23,7 @@ pub struct ReadOutApp {
 }
 
 impl ReadOutApp {
-    pub fn new(config: AppConfiguration, config_path: PathBuf, ctx: &egui::Context) -> Self {
+    pub fn new(config: AppConfiguration, config_path: PathBuf, first_run: bool, ctx: &egui::Context) -> Self {
         let (std_tx, std_rx) = std::sync::mpsc::channel();
         let cancel = CancellationToken::new();
 
@@ -69,6 +70,7 @@ impl ReadOutApp {
             state: DashboardState::new(),
             chart_state: widgets::chart::ChartState::default(),
             settings_panel: widgets::settings::SettingsPanel::new(&config),
+            wizard: widgets::first_run_wizard::FirstRunWizard::new(&config, first_run),
             running: true,
             show_log_panel: true,
             config,
@@ -116,6 +118,14 @@ impl eframe::App for ReadOutApp {
         }
 
         self.handle_keyboard_shortcuts(ctx);
+
+        // First-run wizard
+        if let Some(new_config) = self.wizard.show(ctx) {
+            if let Err(e) = config_store::save(&new_config, &self.config_path) {
+                tracing::error!("Failed to save wizard config: {e:?}");
+            }
+            self.config = new_config;
+        }
 
         // Settings window (floating)
         if let Some(new_config) = self.settings_panel.show(ctx) {
