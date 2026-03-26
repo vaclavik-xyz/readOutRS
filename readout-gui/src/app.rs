@@ -314,7 +314,7 @@ impl eframe::App for ReadOutApp {
             });
 
             ui.separator();
-            widgets::chart::show(ui, &mut self.state.chart_pipelines, &mut self.chart_state);
+            widgets::chart::show(ui, &mut self.state.chart_pipelines, &mut self.state.usbc_chart_pipelines, &mut self.chart_state);
         });
     }
 }

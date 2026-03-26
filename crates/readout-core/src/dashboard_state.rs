@@ -6,11 +6,28 @@ use std::time::{Duration, Instant};
 const CHART_CAPACITY: usize = 360_000;
 const LOG_BUFFER_SIZE: usize = 200;
 
+/// Which USB-C metric to display on the chart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum UsbCMetric {
+    Voltage,
+    Current,
+    Power,
+    Energy,
+}
+
+pub const USBC_METRICS: &[(UsbCMetric, &str)] = &[
+    (UsbCMetric::Voltage, "V"),
+    (UsbCMetric::Current, "A"),
+    (UsbCMetric::Power, "W"),
+    (UsbCMetric::Energy, "mWh"),
+];
+
 pub struct DashboardState {
     pub latest_measurement: HashMap<DeviceId, DeviceMeasurement>,
     pub connection_state: HashMap<DeviceId, ConnectionState>,
     pub alarm_state: HashMap<DeviceId, AlarmState>,
     pub chart_pipelines: HashMap<DeviceId, ChartPipeline>,
+    pub usbc_chart_pipelines: HashMap<UsbCMetric, ChartPipeline>,
     pub log_entries: VecDeque<LogEntry>,
     pub health: HealthMetrics,
     pub paused: bool,
@@ -38,11 +55,18 @@ impl DashboardState {
         chart_pipelines.insert(DeviceId::Multimeter, ChartPipeline::new(CHART_CAPACITY));
         chart_pipelines.insert(DeviceId::UsbC, ChartPipeline::new(CHART_CAPACITY));
 
+        let mut usbc_chart_pipelines = HashMap::new();
+        usbc_chart_pipelines.insert(UsbCMetric::Voltage, ChartPipeline::new(CHART_CAPACITY));
+        usbc_chart_pipelines.insert(UsbCMetric::Current, ChartPipeline::new(CHART_CAPACITY));
+        usbc_chart_pipelines.insert(UsbCMetric::Power, ChartPipeline::new(CHART_CAPACITY));
+        usbc_chart_pipelines.insert(UsbCMetric::Energy, ChartPipeline::new(CHART_CAPACITY));
+
         Self {
             latest_measurement: HashMap::new(),
             connection_state: HashMap::new(),
             alarm_state: HashMap::new(),
             chart_pipelines,
+            usbc_chart_pipelines,
             log_entries: VecDeque::new(),
             health: HealthMetrics::default(),
             paused: false,
@@ -55,11 +79,34 @@ impl DashboardState {
             RuntimeEvent::Measurement { device, value } => {
                 if !self.paused {
                     self.health.measurement_count += 1;
-                    // Push to chart pipeline with real elapsed time
+                    let elapsed = self.start_time.elapsed();
+                    // Push to primary chart pipeline
                     if let Some(pipeline) = self.chart_pipelines.get_mut(&device) {
                         if let Some(v) = value.primary_value {
-                            let elapsed = self.start_time.elapsed();
                             pipeline.push(elapsed, v);
+                        }
+                    }
+                    // Push USB-C secondary metrics
+                    if device == DeviceId::UsbC {
+                        if let Some(v) = value.primary_value {
+                            if let Some(p) = self.usbc_chart_pipelines.get_mut(&UsbCMetric::Voltage) {
+                                p.push(elapsed, v);
+                            }
+                        }
+                        if let Some(v) = value.secondary_value {
+                            if let Some(p) = self.usbc_chart_pipelines.get_mut(&UsbCMetric::Current) {
+                                p.push(elapsed, v);
+                            }
+                        }
+                        if let Some(v) = value.power_watts {
+                            if let Some(p) = self.usbc_chart_pipelines.get_mut(&UsbCMetric::Power) {
+                                p.push(elapsed, v);
+                            }
+                        }
+                        if let Some(v) = value.energy_mwh {
+                            if let Some(p) = self.usbc_chart_pipelines.get_mut(&UsbCMetric::Energy) {
+                                p.push(elapsed, v);
+                            }
                         }
                     }
                     self.latest_measurement.insert(device, value);
