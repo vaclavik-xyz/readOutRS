@@ -110,7 +110,7 @@ impl ScpiTransport for SimulatedScpiTransport {
         }
 
         if cmd.starts_with("SYST:BEEP:STAT") {
-            self.beeper_enabled = cmd.contains("ON");
+            self.beeper_enabled = cmd.ends_with(" ON");
             return Ok(None);
         }
 
@@ -128,6 +128,7 @@ pub struct SimulatedStreamingTransport {
 
 impl SimulatedStreamingTransport {
     pub fn new(sample_rate_hz: u32) -> Self {
+        assert!(sample_rate_hz > 0, "sample_rate_hz must be > 0");
         Self {
             sample_rate_hz,
             is_open: false,

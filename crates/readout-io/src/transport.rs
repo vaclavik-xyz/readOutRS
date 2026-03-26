@@ -10,7 +10,7 @@ pub enum TransportError {
     Io(#[from] std::io::Error),
 }
 
-pub trait DeviceTransport: Send + Sync {
+pub trait DeviceTransport: Send {
     async fn open(&mut self) -> Result<(), TransportError>;
     async fn close(&mut self);
     async fn read_frame(&mut self) -> Result<Option<String>, TransportError>;
