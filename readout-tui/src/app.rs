@@ -149,8 +149,12 @@ pub async fn run(config: AppConfiguration) -> Result<(), Box<dyn std::error::Err
             event = event_stream.next() => {
                 match event {
                     Some(Ok(Event::Key(key))) => app.handle_key(key.code, key.modifiers),
-                    None => break, // stream closed
-                    _ => {}
+                    Some(Ok(_)) => {} // resize, mouse, etc — ignore
+                    Some(Err(e)) => {
+                        tracing::warn!("terminal event error: {e}");
+                        break;
+                    }
+                    None => break,
                 }
             }
         }
