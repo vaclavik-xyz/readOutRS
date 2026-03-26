@@ -83,11 +83,14 @@ struct TerminalGuard;
 impl TerminalGuard {
     fn new() -> Result<Self, Box<dyn std::error::Error>> {
         crossterm::terminal::enable_raw_mode()?;
-        crossterm::execute!(
+        if let Err(e) = crossterm::execute!(
             std::io::stdout(),
             crossterm::terminal::EnterAlternateScreen,
             crossterm::event::EnableMouseCapture
-        )?;
+        ) {
+            let _ = crossterm::terminal::disable_raw_mode();
+            return Err(e.into());
+        }
         Ok(Self)
     }
 }
@@ -144,8 +147,10 @@ pub async fn run(config: AppConfiguration) -> Result<(), Box<dyn std::error::Err
             _ = cancel.cancelled() => break,
             _ = render_interval.tick() => {}
             event = event_stream.next() => {
-                if let Some(Ok(Event::Key(key))) = event {
-                    app.handle_key(key.code, key.modifiers);
+                match event {
+                    Some(Ok(Event::Key(key))) => app.handle_key(key.code, key.modifiers),
+                    None => break, // stream closed
+                    _ => {}
                 }
             }
         }
