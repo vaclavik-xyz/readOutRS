@@ -109,7 +109,10 @@ impl DeviceSession {
                                         }
                                     }
                                     Ok(None) => {
-                                        tokio::task::yield_now().await;
+                                        // No data available — short sleep to prevent busy-spin.
+                                        // EOF from transport is also Ok(None), so this avoids
+                                        // a tight loop on a closed connection.
+                                        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                                     }
                                     Err(err) => {
                                         let _ = send_event(&event_tx, DeviceSessionEvent::TransportError(err.to_string())).await;

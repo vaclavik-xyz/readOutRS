@@ -99,10 +99,14 @@ impl Runtime {
         device_cancel.cancel();
 
         if let Some(h) = mm_handle {
-            let _ = h.await;
+            if let Err(e) = h.await {
+                tracing::error!("Multimeter task failed: {e}");
+            }
         }
         if let Some(h) = usbc_handle {
-            let _ = h.await;
+            if let Err(e) = h.await {
+                tracing::error!("USB-C task failed: {e}");
+            }
         }
     }
 
@@ -113,67 +117,96 @@ impl Runtime {
     ) {
         let transport = SimulatedScpiTransport::new(sample_rate);
         let mut driver = MultimeterDriver::new(transport);
+        let mut reconnect_delay = std::time::Duration::from_millis(500);
 
-        let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
-            device: DeviceId::Multimeter,
-            state: readout_core::types::ConnectionState::Connecting,
-        });
-
-        if driver.connect().await.is_err() {
-            let _ = event_tx.send(RuntimeEvent::Error {
-                device: DeviceId::Multimeter,
-                message: "Failed to connect".into(),
-            });
-            return;
-        }
-
-        let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
-            device: DeviceId::Multimeter,
-            state: readout_core::types::ConnectionState::Connected,
-        });
-
-        let mut consecutive_errors: u32 = 0;
         loop {
-            tokio::select! {
-                _ = cancel.cancelled() => {
-                    driver.close().await;
-                    let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
-                        device: DeviceId::Multimeter,
-                        state: readout_core::types::ConnectionState::Disconnected,
-                    });
-                    return;
-                }
-                result = driver.poll() => {
-                    match result {
-                        Ok(measurement) => {
-                            consecutive_errors = 0;
-                            let _ = event_tx.send(RuntimeEvent::Measurement {
+            if cancel.is_cancelled() {
+                break;
+            }
+
+            let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
+                device: DeviceId::Multimeter,
+                state: readout_core::types::ConnectionState::Connecting,
+            });
+
+            if driver.connect().await.is_err() {
+                let _ = event_tx.send(RuntimeEvent::Error {
+                    device: DeviceId::Multimeter,
+                    message: "Failed to connect".into(),
+                });
+            } else {
+                let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
+                    device: DeviceId::Multimeter,
+                    state: readout_core::types::ConnectionState::Connected,
+                });
+                reconnect_delay = std::time::Duration::from_millis(500);
+
+                let mut consecutive_errors: u32 = 0;
+                loop {
+                    tokio::select! {
+                        _ = cancel.cancelled() => {
+                            driver.close().await;
+                            let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
                                 device: DeviceId::Multimeter,
-                                value: measurement,
+                                state: readout_core::types::ConnectionState::Disconnected,
                             });
+                            return;
                         }
-                        Err(e) => {
-                            consecutive_errors += 1;
-                            let _ = event_tx.send(RuntimeEvent::Error {
-                                device: DeviceId::Multimeter,
-                                message: e.to_string(),
-                            });
-                            if consecutive_errors >= 5 {
-                                tracing::warn!("Multimeter: too many consecutive errors, disconnecting");
-                                driver.close().await;
-                                let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
-                                    device: DeviceId::Multimeter,
-                                    state: readout_core::types::ConnectionState::Disconnected,
-                                });
-                                return;
+                        result = driver.poll() => {
+                            match result {
+                                Ok(measurement) => {
+                                    consecutive_errors = 0;
+                                    let _ = event_tx.send(RuntimeEvent::Measurement {
+                                        device: DeviceId::Multimeter,
+                                        value: measurement,
+                                    });
+                                }
+                                Err(e) => {
+                                    consecutive_errors += 1;
+                                    let _ = event_tx.send(RuntimeEvent::Error {
+                                        device: DeviceId::Multimeter,
+                                        message: e.to_string(),
+                                    });
+                                    if consecutive_errors >= 5 {
+                                        tracing::warn!("Multimeter: too many consecutive errors, will reconnect");
+                                        driver.close().await;
+                                        break; // break to reconnect loop
+                                    }
+                                    // Cancellation-aware backoff
+                                    tokio::select! {
+                                        _ = cancel.cancelled() => {
+                                            driver.close().await;
+                                            let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
+                                                device: DeviceId::Multimeter,
+                                                state: readout_core::types::ConnectionState::Disconnected,
+                                            });
+                                            return;
+                                        }
+                                        _ = tokio::time::sleep(std::time::Duration::from_millis(200)) => {}
+                                    }
+                                }
                             }
-                            // Backoff before retry
-                            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                         }
                     }
                 }
             }
+
+            // Reconnect with cancellation-aware backoff
+            let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
+                device: DeviceId::Multimeter,
+                state: readout_core::types::ConnectionState::Reconnecting,
+            });
+            tokio::select! {
+                _ = cancel.cancelled() => { break; }
+                _ = tokio::time::sleep(reconnect_delay) => {}
+            }
+            reconnect_delay = (reconnect_delay * 2).min(std::time::Duration::from_secs(5));
         }
+
+        let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
+            device: DeviceId::Multimeter,
+            state: readout_core::types::ConnectionState::Disconnected,
+        });
     }
 
     async fn run_usbc(
@@ -183,66 +216,93 @@ impl Runtime {
     ) {
         let transport = SimulatedStreamingTransport::new(sample_rate);
         let mut driver = UsbCDriver::new(transport);
+        let mut reconnect_delay = std::time::Duration::from_millis(500);
 
-        let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
-            device: DeviceId::UsbC,
-            state: readout_core::types::ConnectionState::Connecting,
-        });
-
-        if driver.connect().await.is_err() {
-            let _ = event_tx.send(RuntimeEvent::Error {
-                device: DeviceId::UsbC,
-                message: "Failed to connect".into(),
-            });
-            return;
-        }
-
-        let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
-            device: DeviceId::UsbC,
-            state: readout_core::types::ConnectionState::Connected,
-        });
-
-        let mut consecutive_errors: u32 = 0;
         loop {
-            tokio::select! {
-                _ = cancel.cancelled() => {
-                    driver.close().await;
-                    let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
-                        device: DeviceId::UsbC,
-                        state: readout_core::types::ConnectionState::Disconnected,
-                    });
-                    return;
-                }
-                result = driver.read_measurement() => {
-                    match result {
-                        Ok(measurement) => {
-                            consecutive_errors = 0;
-                            let _ = event_tx.send(RuntimeEvent::Measurement {
+            if cancel.is_cancelled() {
+                break;
+            }
+
+            let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
+                device: DeviceId::UsbC,
+                state: readout_core::types::ConnectionState::Connecting,
+            });
+
+            if driver.connect().await.is_err() {
+                let _ = event_tx.send(RuntimeEvent::Error {
+                    device: DeviceId::UsbC,
+                    message: "Failed to connect".into(),
+                });
+            } else {
+                let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
+                    device: DeviceId::UsbC,
+                    state: readout_core::types::ConnectionState::Connected,
+                });
+                reconnect_delay = std::time::Duration::from_millis(500);
+
+                let mut consecutive_errors: u32 = 0;
+                loop {
+                    tokio::select! {
+                        _ = cancel.cancelled() => {
+                            driver.close().await;
+                            let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
                                 device: DeviceId::UsbC,
-                                value: measurement,
+                                state: readout_core::types::ConnectionState::Disconnected,
                             });
+                            return;
                         }
-                        Err(e) => {
-                            consecutive_errors += 1;
-                            let _ = event_tx.send(RuntimeEvent::Error {
-                                device: DeviceId::UsbC,
-                                message: e.to_string(),
-                            });
-                            if consecutive_errors >= 5 {
-                                tracing::warn!("USB-C: too many consecutive errors, disconnecting");
-                                driver.close().await;
-                                let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
-                                    device: DeviceId::UsbC,
-                                    state: readout_core::types::ConnectionState::Disconnected,
-                                });
-                                return;
+                        result = driver.read_measurement() => {
+                            match result {
+                                Ok(measurement) => {
+                                    consecutive_errors = 0;
+                                    let _ = event_tx.send(RuntimeEvent::Measurement {
+                                        device: DeviceId::UsbC,
+                                        value: measurement,
+                                    });
+                                }
+                                Err(e) => {
+                                    consecutive_errors += 1;
+                                    let _ = event_tx.send(RuntimeEvent::Error {
+                                        device: DeviceId::UsbC,
+                                        message: e.to_string(),
+                                    });
+                                    if consecutive_errors >= 5 {
+                                        tracing::warn!("USB-C: too many consecutive errors, will reconnect");
+                                        driver.close().await;
+                                        break;
+                                    }
+                                    tokio::select! {
+                                        _ = cancel.cancelled() => {
+                                            driver.close().await;
+                                            let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
+                                                device: DeviceId::UsbC,
+                                                state: readout_core::types::ConnectionState::Disconnected,
+                                            });
+                                            return;
+                                        }
+                                        _ = tokio::time::sleep(std::time::Duration::from_millis(200)) => {}
+                                    }
+                                }
                             }
-                            // Backoff before retry
-                            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                         }
                     }
                 }
             }
+
+            let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
+                device: DeviceId::UsbC,
+                state: readout_core::types::ConnectionState::Reconnecting,
+            });
+            tokio::select! {
+                _ = cancel.cancelled() => { break; }
+                _ = tokio::time::sleep(reconnect_delay) => {}
+            }
+            reconnect_delay = (reconnect_delay * 2).min(std::time::Duration::from_secs(5));
         }
+
+        let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
+            device: DeviceId::UsbC,
+            state: readout_core::types::ConnectionState::Disconnected,
+        });
     }
 }
