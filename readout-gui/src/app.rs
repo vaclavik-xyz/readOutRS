@@ -89,7 +89,7 @@ pub struct ReadOutApp {
     config: AppConfiguration,
     config_path: PathBuf,
     ctx: egui::Context,
-    theme_applied: bool,
+    applied_theme: Option<readout_persistence::config::DashboardTheme>,
 }
 
 impl ReadOutApp {
@@ -119,7 +119,7 @@ impl ReadOutApp {
             config,
             config_path,
             ctx: ctx.clone(),
-            theme_applied: false,
+            applied_theme: None,
         }
     }
 
@@ -157,10 +157,10 @@ impl ReadOutApp {
 
 impl eframe::App for ReadOutApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Apply theme once
-        if !self.theme_applied {
+        // Apply theme on change
+        if self.applied_theme != Some(self.config.dashboard_theme) {
             crate::theme::apply_theme(ctx, self.config.dashboard_theme);
-            self.theme_applied = true;
+            self.applied_theme = Some(self.config.dashboard_theme);
         }
 
         // Drain events from runtime
