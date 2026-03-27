@@ -233,65 +233,63 @@ impl eframe::App for ReadOutApp {
 
             ui.separator();
 
-            // Use direct field access (not connection_for/alarm_for methods)
-            // to avoid borrowing all of DashboardState while chart pipelines are mut-borrowed.
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                if self.show_mm {
-                    let default_conn = ConnectionState::Disconnected;
-                    let mm_conn = self.state.connection_state
-                        .get(&DeviceId::Multimeter)
-                        .unwrap_or(&default_conn);
-                    let mm_alarm = self.state.alarm_state
-                        .get(&DeviceId::Multimeter)
-                        .copied()
-                        .unwrap_or(AlarmState::None);
-                    let mm_pipeline = self.state.chart_pipelines.get_mut(&DeviceId::Multimeter);
-                    widgets::device_section::show(
-                        ui,
-                        DeviceId::Multimeter,
-                        self.state.latest_measurement.get(&DeviceId::Multimeter),
-                        mm_conn,
-                        mm_alarm,
-                        mm_pipeline,
-                        self.selected_range_idx,
-                        self.usbc_metric,
-                    );
-                }
+            // Device sections — no ScrollArea so we can measure true content height.
+            if self.show_mm {
+                let default_conn = ConnectionState::Disconnected;
+                let mm_conn = self.state.connection_state
+                    .get(&DeviceId::Multimeter)
+                    .unwrap_or(&default_conn);
+                let mm_alarm = self.state.alarm_state
+                    .get(&DeviceId::Multimeter)
+                    .copied()
+                    .unwrap_or(AlarmState::None);
+                let mm_pipeline = self.state.chart_pipelines.get_mut(&DeviceId::Multimeter);
+                widgets::device_section::show(
+                    ui,
+                    DeviceId::Multimeter,
+                    self.state.latest_measurement.get(&DeviceId::Multimeter),
+                    mm_conn,
+                    mm_alarm,
+                    mm_pipeline,
+                    self.selected_range_idx,
+                    self.usbc_metric,
+                );
+            }
 
-                if self.show_mm && self.show_usbc {
-                    ui.add_space(4.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-                }
+            if self.show_mm && self.show_usbc {
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(4.0);
+            }
 
-                if self.show_usbc {
-                    let default_conn = ConnectionState::Disconnected;
-                    let usbc_conn = self.state.connection_state
-                        .get(&DeviceId::UsbC)
-                        .unwrap_or(&default_conn);
-                    let usbc_alarm = self.state.alarm_state
-                        .get(&DeviceId::UsbC)
-                        .copied()
-                        .unwrap_or(AlarmState::None);
-                    let usbc_pipeline =
-                        self.state.usbc_chart_pipelines.get_mut(&self.usbc_metric);
-                    let sa = widgets::device_section::show(
-                        ui,
-                        DeviceId::UsbC,
-                        self.state.latest_measurement.get(&DeviceId::UsbC),
-                        usbc_conn,
-                        usbc_alarm,
-                        usbc_pipeline,
-                        self.selected_range_idx,
-                        self.usbc_metric,
-                    );
-                    if !matches!(sa, widgets::device_section::SectionAction::None) {
-                        section_action = sa;
-                    }
+            if self.show_usbc {
+                let default_conn = ConnectionState::Disconnected;
+                let usbc_conn = self.state.connection_state
+                    .get(&DeviceId::UsbC)
+                    .unwrap_or(&default_conn);
+                let usbc_alarm = self.state.alarm_state
+                    .get(&DeviceId::UsbC)
+                    .copied()
+                    .unwrap_or(AlarmState::None);
+                let usbc_pipeline =
+                    self.state.usbc_chart_pipelines.get_mut(&self.usbc_metric);
+                let sa = widgets::device_section::show(
+                    ui,
+                    DeviceId::UsbC,
+                    self.state.latest_measurement.get(&DeviceId::UsbC),
+                    usbc_conn,
+                    usbc_alarm,
+                    usbc_pipeline,
+                    self.selected_range_idx,
+                    self.usbc_metric,
+                );
+                if !matches!(sa, widgets::device_section::SectionAction::None) {
+                    section_action = sa;
                 }
-            });
+            }
 
-            content_height = ui.min_rect().height() + 16.0;
+            // Measure actual content height (cursor.y = bottom of last widget)
+            content_height = ui.cursor().top() + 8.0;
         });
 
         // Fit window to content
