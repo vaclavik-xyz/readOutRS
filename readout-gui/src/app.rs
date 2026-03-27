@@ -379,14 +379,14 @@ impl eframe::App for ReadOutApp {
         }
 
         if let Some(target) = self.target_height {
-            let current = ctx.input(|i| i.viewport().inner_rect.unwrap_or(i.screen_rect()).height());
+            let current = ctx.input(|i| i.viewport().inner_rect.unwrap_or(i.viewport_rect()).height());
             let diff = target - current;
             if diff.abs() < 2.0 {
                 self.target_height = None;
             } else {
                 let new_height = current + diff * 0.15;
                 ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
-                    ctx.input(|i| i.viewport().inner_rect.unwrap_or(i.screen_rect()).width()),
+                    ctx.input(|i| i.viewport().inner_rect.unwrap_or(i.viewport_rect()).width()),
                     new_height,
                 )));
             }

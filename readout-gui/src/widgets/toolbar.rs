@@ -1,6 +1,3 @@
-use crate::theme::colors;
-use readout_core::dashboard_state::UsbCMetric;
-
 use std::time::Duration;
 
 pub const RANGE_OPTIONS: &[(Duration, &str)] = &[
