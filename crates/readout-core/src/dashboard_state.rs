@@ -155,6 +155,9 @@ impl DashboardState {
             RuntimeEvent::Log { level, message } => {
                 self.push_log(level, message);
             }
+            RuntimeEvent::MeterState { .. } => {
+                // handled by the SCPI layer; dashboard ignores this event
+            }
         }
     }
 

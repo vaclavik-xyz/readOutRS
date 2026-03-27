@@ -26,6 +26,27 @@ pub enum AlarmState {
     Short,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MultimeterRange {
+    Auto,
+    Manual(u8), // index 1-7, meaning depends on current mode
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MultimeterRate {
+    Fast,   // RATE F
+    Medium, // RATE M
+    Slow,   // RATE S
+}
+
+#[derive(Debug, Clone)]
+pub enum MultimeterCommand {
+    QueryIdentity,
+    SetMode(crate::measurement_mode::MeasurementMode),
+    SetRange(MultimeterRange),
+    SetRate(MultimeterRate),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum LogLevel {
     Debug,
@@ -78,6 +99,13 @@ pub enum RuntimeEvent {
         level: LogLevel,
         message: String,
     },
+    MeterState {
+        identity: Option<String>,
+        mode: crate::measurement_mode::MeasurementMode,
+        range_label: String,
+        rate: MultimeterRate,
+        auto_range: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -88,4 +116,5 @@ pub enum Command {
     ResetEnergy { device: DeviceId },
     AcknowledgeAlarm { device: DeviceId },
     SilenceAlarm { duration: std::time::Duration },
+    Meter(MultimeterCommand),
 }
