@@ -502,6 +502,7 @@ impl eframe::App for ReadOutApp {
                 ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(level));
                 self.save_config_async();
             }
+            widgets::toolbar::ToolbarAction::OpenMeterControl => {}
             widgets::toolbar::ToolbarAction::None => {}
         }
 
