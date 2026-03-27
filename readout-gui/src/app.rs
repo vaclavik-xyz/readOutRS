@@ -116,9 +116,9 @@ impl ReadOutApp {
             settings_panel: widgets::settings::SettingsPanel::new(&config),
             wizard: widgets::first_run_wizard::FirstRunWizard::new(&config, first_run),
             popout_state: crate::popout::PopoutState {
-                open: config.popout_open,
-                show_mm: config.popout_show_mm,
-                show_usbc: config.popout_show_usbc,
+                open: false, // no longer persisted
+                show_mm: config.show_mm,
+                show_usbc: config.show_usbc,
             },
             audio: crate::audio::AlarmAudio::new(),
             running: !first_run,
@@ -326,13 +326,11 @@ impl eframe::App for ReadOutApp {
         }
 
         // Sync popout state to config for persistence
-        if self.config.popout_open != self.popout_state.open
-            || self.config.popout_show_mm != self.popout_state.show_mm
-            || self.config.popout_show_usbc != self.popout_state.show_usbc
+        if self.config.show_mm != self.popout_state.show_mm
+            || self.config.show_usbc != self.popout_state.show_usbc
         {
-            self.config.popout_open = self.popout_state.open;
-            self.config.popout_show_mm = self.popout_state.show_mm;
-            self.config.popout_show_usbc = self.popout_state.show_usbc;
+            self.config.show_mm = self.popout_state.show_mm;
+            self.config.show_usbc = self.popout_state.show_usbc;
             let path = self.config_path.clone();
             let config = self.config.clone();
             std::thread::spawn(move || {

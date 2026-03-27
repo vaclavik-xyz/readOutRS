@@ -189,12 +189,14 @@ pub struct AppConfiguration {
     pub runtime_log_capture_enabled: bool,
 
     // Popout window
-    #[serde(default)]
-    pub popout_open: bool,
     #[serde(default = "default_true")]
-    pub popout_show_mm: bool,
+    pub show_mm: bool,
     #[serde(default = "default_true")]
-    pub popout_show_usbc: bool,
+    pub show_usbc: bool,
+
+    // Window behaviour
+    #[serde(default = "default_true")]
+    pub always_on_top: bool,
 }
 
 // --- Default value helpers ---
@@ -271,9 +273,9 @@ impl Default for AppConfiguration {
             dashboard_theme: DashboardTheme::System,
             runtime_log_panel_visible: true,
             runtime_log_capture_enabled: true,
-            popout_open: false,
-            popout_show_mm: true,
-            popout_show_usbc: true,
+            show_mm: true,
+            show_usbc: true,
+            always_on_top: true,
         }
     }
 }
@@ -383,12 +385,12 @@ impl<'de> Deserialize<'de> for AppConfiguration {
             runtime_log_panel_visible: bool,
             #[serde(default = "default_true")]
             runtime_log_capture_enabled: bool,
-            #[serde(default)]
-            popout_open: bool,
             #[serde(default = "default_true")]
-            popout_show_mm: bool,
+            show_mm: bool,
             #[serde(default = "default_true")]
-            popout_show_usbc: bool,
+            show_usbc: bool,
+            #[serde(default = "default_true")]
+            always_on_top: bool,
         }
 
         let inner = Inner::deserialize(deserializer)?;
@@ -431,9 +433,9 @@ impl<'de> Deserialize<'de> for AppConfiguration {
             dashboard_theme: inner.dashboard_theme,
             runtime_log_panel_visible: inner.runtime_log_panel_visible,
             runtime_log_capture_enabled: inner.runtime_log_capture_enabled,
-            popout_open: inner.popout_open,
-            popout_show_mm: inner.popout_show_mm,
-            popout_show_usbc: inner.popout_show_usbc,
+            show_mm: inner.show_mm,
+            show_usbc: inner.show_usbc,
+            always_on_top: inner.always_on_top,
         };
         config.clamp_values();
         Ok(config)
