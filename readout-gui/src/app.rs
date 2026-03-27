@@ -211,6 +211,7 @@ impl eframe::App for ReadOutApp {
         // --- Main content ---
         let mut toolbar_action = widgets::toolbar::ToolbarAction::None;
         let mut section_action = widgets::device_section::SectionAction::None;
+        let mut content_height = 0.0_f32;
 
         egui::CentralPanel::default().show(ctx, |ui| {
             let mut toolbar_state = widgets::toolbar::ToolbarState {
@@ -289,7 +290,18 @@ impl eframe::App for ReadOutApp {
                     }
                 }
             });
+
+            content_height = ui.min_rect().height() + 16.0;
         });
+
+        // Fit window to content
+        let window_height = ctx.input(|i| i.viewport_rect().height());
+        if content_height > 100.0 && (content_height - window_height).abs() > 8.0 {
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+                ctx.input(|i| i.viewport_rect().width()),
+                content_height,
+            )));
+        }
 
         // Handle toolbar actions
         match toolbar_action {
