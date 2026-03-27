@@ -96,6 +96,9 @@ pub struct ReadOutApp {
     config_path: PathBuf,
     ctx: egui::Context,
     applied_theme: Option<readout_persistence::config::DashboardTheme>,
+    target_height: Option<f32>,
+    prev_show_mm: bool,
+    prev_show_usbc: bool,
 }
 
 impl ReadOutApp {
@@ -124,10 +127,13 @@ impl ReadOutApp {
             always_on_top: config.always_on_top,
             usbc_metric: UsbCMetric::Voltage,
             selected_range_idx: 0,
-            config,
             config_path,
             ctx: ctx.clone(),
             applied_theme: None,
+            target_height: None,
+            prev_show_mm: config.show_mm,
+            prev_show_usbc: config.show_usbc,
+            config,
         }
     }
 
@@ -354,6 +360,36 @@ impl eframe::App for ReadOutApp {
             self.config.show_mm = self.show_mm;
             self.config.show_usbc = self.show_usbc;
             self.save_config_async();
+        }
+
+        // Auto-resize animation on visibility toggle
+        if self.show_mm != self.prev_show_mm || self.show_usbc != self.prev_show_usbc {
+            self.prev_show_mm = self.show_mm;
+            self.prev_show_usbc = self.show_usbc;
+
+            // Estimate target height: toolbar ~50, device section ~260, separator ~12
+            let toolbar_h = 50.0_f32;
+            let section_h = 260.0_f32;
+            let sep_h = 12.0_f32;
+            let n_sections = self.show_mm as u8 + self.show_usbc as u8;
+            let target = toolbar_h
+                + section_h * n_sections as f32
+                + if n_sections == 2 { sep_h } else { 0.0 };
+            self.target_height = Some(target);
+        }
+
+        if let Some(target) = self.target_height {
+            let current = ctx.input(|i| i.viewport().inner_rect.unwrap_or(i.screen_rect()).height());
+            let diff = target - current;
+            if diff.abs() < 2.0 {
+                self.target_height = None;
+            } else {
+                let new_height = current + diff * 0.15;
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+                    ctx.input(|i| i.viewport().inner_rect.unwrap_or(i.screen_rect()).width()),
+                    new_height,
+                )));
+            }
         }
 
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
