@@ -141,6 +141,18 @@ pub fn show(
                         .family(egui::FontFamily::Monospace)
                         .color(theme::text_secondary(ui)),
                 );
+                let hint = match connection {
+                    ConnectionState::Connecting | ConnectionState::Reconnecting => "Connecting...",
+                    ConnectionState::Error(_) => "Connection error",
+                    ConnectionState::Disconnected => "Disconnected",
+                    ConnectionState::Connected => "Waiting for data...",
+                };
+                ui.label(
+                    egui::RichText::new(hint)
+                        .size(10.0)
+                        .color(theme::text_secondary(ui))
+                        .italics(),
+                );
             }
 
             // Mini chart

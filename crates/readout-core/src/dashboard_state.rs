@@ -122,6 +122,28 @@ impl DashboardState {
                 if matches!(state, ConnectionState::Reconnecting) {
                     self.health.reconnect_count += 1;
                 }
+                // Clear stale measurement on disconnection
+                if !matches!(state, ConnectionState::Connected) {
+                    self.latest_measurement.remove(&device);
+                    self.alarm_state.insert(device, AlarmState::None);
+                }
+                let label = match device {
+                    DeviceId::Multimeter => "Multimeter",
+                    DeviceId::UsbC => "USB-C",
+                };
+                let msg = match &state {
+                    ConnectionState::Connected => format!("{label} connected"),
+                    ConnectionState::Connecting => format!("{label} connecting..."),
+                    ConnectionState::Reconnecting => format!("{label} reconnecting..."),
+                    ConnectionState::Disconnected => format!("{label} disconnected"),
+                    ConnectionState::Error(e) => format!("{label} error: {e}"),
+                };
+                let level = match &state {
+                    ConnectionState::Connected => LogLevel::Info,
+                    ConnectionState::Error(_) => LogLevel::Error,
+                    _ => LogLevel::Warning,
+                };
+                self.push_log(level, msg);
                 self.connection_state.insert(device, state);
             }
             RuntimeEvent::Error { message, .. } => {
