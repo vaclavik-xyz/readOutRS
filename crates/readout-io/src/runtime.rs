@@ -62,6 +62,9 @@ impl Runtime {
         // Channel for forwarding commands to the USB-C device task
         let (usbc_cmd_tx, usbc_cmd_rx) = mpsc::channel::<Command>(16);
 
+        // Channel for forwarding commands to the multimeter device task
+        let (mm_cmd_tx, mm_cmd_rx) = mpsc::channel::<readout_core::types::MultimeterCommand>(16);
+
         // Spawn device tasks and retain handles for join
         let mm_handle = if self.config.multimeter_enabled {
             let event_tx = self.event_tx.clone();
@@ -81,7 +84,7 @@ impl Runtime {
 
             let auto_reconnect = self.config.multimeter_auto_reconnect;
             Some(tokio::spawn(async move {
-                Self::run_multimeter(use_simulator, port, sample_rate, meter_beep, meter_beep_flag, alert_config, event_tx, cancel, auto_reconnect).await;
+                Self::run_multimeter(use_simulator, port, sample_rate, meter_beep, meter_beep_flag, alert_config, event_tx, cancel, mm_cmd_rx, auto_reconnect).await;
             }))
         } else {
             None
@@ -123,6 +126,9 @@ impl Runtime {
                         Some(cmd @ Command::ResetEnergy { .. }) => {
                             let _ = usbc_cmd_tx.send(cmd).await;
                         }
+                        Some(Command::Meter(cmd)) => {
+                            let _ = mm_cmd_tx.send(cmd).await;
+                        }
                         Some(other) => {
                             tracing::debug!(?other, "command not yet handled");
                         }
@@ -155,6 +161,7 @@ impl Runtime {
         alert_config: readout_core::alerts::AlertConfiguration,
         event_tx: broadcast::Sender<RuntimeEvent>,
         cancel: CancellationToken,
+        mut cmd_rx: mpsc::Receiver<readout_core::types::MultimeterCommand>,
         auto_reconnect: bool,
     ) {
         tracing::info!(use_simulator, %port, sample_rate, "Starting multimeter task");
@@ -163,13 +170,13 @@ impl Runtime {
             let mut driver = MultimeterDriver::new(transport);
             driver.set_meter_beep(meter_beep);
             driver.set_alert_config(alert_config);
-            Self::multimeter_loop(&mut driver, meter_beep_flag, event_tx, cancel, auto_reconnect).await;
+            Self::multimeter_loop(&mut driver, meter_beep_flag, event_tx, cancel, &mut cmd_rx, auto_reconnect).await;
         } else {
             let transport = SerialTransport::new(port, MULTIMETER_BAUD_RATE);
             let mut driver = MultimeterDriver::new(transport);
             driver.set_meter_beep(meter_beep);
             driver.set_alert_config(alert_config);
-            Self::multimeter_loop(&mut driver, meter_beep_flag, event_tx, cancel, auto_reconnect).await;
+            Self::multimeter_loop(&mut driver, meter_beep_flag, event_tx, cancel, &mut cmd_rx, auto_reconnect).await;
         }
     }
 
@@ -178,6 +185,7 @@ impl Runtime {
         meter_beep_flag: Arc<AtomicBool>,
         event_tx: broadcast::Sender<RuntimeEvent>,
         cancel: CancellationToken,
+        cmd_rx: &mut mpsc::Receiver<readout_core::types::MultimeterCommand>,
         auto_reconnect: bool,
     ) {
         let mut reconnect_delay = std::time::Duration::from_millis(500);
@@ -206,71 +214,84 @@ impl Runtime {
                 });
                 reconnect_delay = std::time::Duration::from_millis(500);
 
+                // Emit initial MeterState after connect
+                let identity = driver.query_identity().await;
+                let initial_state = driver.query_state().await;
+                let _ = event_tx.send(RuntimeEvent::MeterState {
+                    identity,
+                    mode: initial_state.mode,
+                    range_label: initial_state.range_label,
+                    rate: initial_state.rate,
+                    auto_range: initial_state.auto_range,
+                });
+
                 let mut consecutive_errors: u32 = 0;
                 loop {
-                    tokio::select! {
-                        _ = cancel.cancelled() => {
-                            driver.close().await;
-                            let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
+                    if cancel.is_cancelled() {
+                        driver.close().await;
+                        let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
+                            device: DeviceId::Multimeter,
+                            state: readout_core::types::ConnectionState::Disconnected,
+                        });
+                        return;
+                    }
+
+                    // Drain pending meter commands
+                    while let Ok(cmd) = cmd_rx.try_recv() {
+                        Self::handle_meter_command(driver, &event_tx, cmd).await;
+                    }
+
+                    // Live meter beep toggle
+                    let desired = meter_beep_flag.load(Ordering::Relaxed);
+                    if desired != current_beep_state {
+                        driver.set_beeper(desired).await;
+                        current_beep_state = desired;
+                    }
+
+                    match driver.poll().await {
+                        Ok(measurement) => {
+                            consecutive_errors = 0;
+                            let new_alarm = measurement.alarm_state;
+                            let _ = event_tx.send(RuntimeEvent::Measurement {
                                 device: DeviceId::Multimeter,
-                                state: readout_core::types::ConnectionState::Disconnected,
+                                value: measurement,
                             });
-                            return;
+                            if new_alarm != prev_alarm {
+                                if new_alarm == readout_core::types::AlarmState::None {
+                                    let _ = event_tx.send(RuntimeEvent::AlarmCleared {
+                                        device: DeviceId::Multimeter,
+                                    });
+                                } else {
+                                    let _ = event_tx.send(RuntimeEvent::AlarmTriggered {
+                                        device: DeviceId::Multimeter,
+                                        alarm: new_alarm,
+                                    });
+                                }
+                                prev_alarm = new_alarm;
+                            }
                         }
-                        result = driver.poll() => {
-                            match result {
-                                Ok(measurement) => {
-                                    consecutive_errors = 0;
-                                    let new_alarm = measurement.alarm_state;
-                                    let _ = event_tx.send(RuntimeEvent::Measurement {
+                        Err(e) => {
+                            consecutive_errors += 1;
+                            let _ = event_tx.send(RuntimeEvent::Error {
+                                device: DeviceId::Multimeter,
+                                message: e.to_string(),
+                            });
+                            if consecutive_errors >= 5 {
+                                tracing::warn!("Multimeter: too many consecutive errors, will reconnect");
+                                driver.close().await;
+                                prev_alarm = readout_core::types::AlarmState::None;
+                                break;
+                            }
+                            tokio::select! {
+                                _ = cancel.cancelled() => {
+                                    driver.close().await;
+                                    let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
                                         device: DeviceId::Multimeter,
-                                        value: measurement,
+                                        state: readout_core::types::ConnectionState::Disconnected,
                                     });
-                                    if new_alarm != prev_alarm {
-                                        if new_alarm == readout_core::types::AlarmState::None {
-                                            let _ = event_tx.send(RuntimeEvent::AlarmCleared {
-                                                device: DeviceId::Multimeter,
-                                            });
-                                        } else {
-                                            let _ = event_tx.send(RuntimeEvent::AlarmTriggered {
-                                                device: DeviceId::Multimeter,
-                                                alarm: new_alarm,
-                                            });
-                                        }
-                                        prev_alarm = new_alarm;
-                                    }
-                                    // Live meter beep toggle
-                                    let desired = meter_beep_flag.load(Ordering::Relaxed);
-                                    if desired != current_beep_state {
-                                        driver.set_beeper(desired).await;
-                                        current_beep_state = desired;
-                                    }
+                                    return;
                                 }
-                                Err(e) => {
-                                    consecutive_errors += 1;
-                                    let _ = event_tx.send(RuntimeEvent::Error {
-                                        device: DeviceId::Multimeter,
-                                        message: e.to_string(),
-                                    });
-                                    if consecutive_errors >= 5 {
-                                        tracing::warn!("Multimeter: too many consecutive errors, will reconnect");
-                                        driver.close().await;
-                                        prev_alarm = readout_core::types::AlarmState::None;
-                                        break; // break to reconnect loop
-                                    }
-                                    // Cancellation-aware backoff
-                                    tokio::select! {
-                                        _ = cancel.cancelled() => {
-                                            driver.close().await;
-                                            let _ = event_tx.send(RuntimeEvent::ConnectionChanged {
-                                                device: DeviceId::Multimeter,
-                                                state: readout_core::types::ConnectionState::Disconnected,
-                                            });
-                                            return;
-                                        }
-                                        _ = tokio::time::sleep(std::time::Duration::from_millis(200)) => {}
-                                    }
-                                }
+                                _ = tokio::time::sleep(std::time::Duration::from_millis(200)) => {}
                             }
                         }
                     }
@@ -297,6 +318,66 @@ impl Runtime {
             device: DeviceId::Multimeter,
             state: readout_core::types::ConnectionState::Disconnected,
         });
+    }
+
+    async fn handle_meter_command<T: ScpiTransport>(
+        driver: &mut MultimeterDriver<T>,
+        event_tx: &broadcast::Sender<RuntimeEvent>,
+        cmd: readout_core::types::MultimeterCommand,
+    ) {
+        use readout_core::types::MultimeterCommand;
+        match cmd {
+            MultimeterCommand::QueryIdentity => {
+                let identity = driver.query_identity().await;
+                let state = driver.query_state().await;
+                let _ = event_tx.send(RuntimeEvent::MeterState {
+                    identity,
+                    mode: state.mode,
+                    range_label: state.range_label,
+                    rate: state.rate,
+                    auto_range: state.auto_range,
+                });
+            }
+            MultimeterCommand::SetMode(mode) => {
+                if let Err(e) = driver.set_mode(mode).await {
+                    tracing::warn!("set_mode failed: {e}");
+                }
+                let state = driver.query_state().await;
+                let _ = event_tx.send(RuntimeEvent::MeterState {
+                    identity: None,
+                    mode: state.mode,
+                    range_label: state.range_label,
+                    rate: state.rate,
+                    auto_range: state.auto_range,
+                });
+            }
+            MultimeterCommand::SetRange(range) => {
+                if let Err(e) = driver.set_range(range).await {
+                    tracing::warn!("set_range failed: {e}");
+                }
+                let state = driver.query_state().await;
+                let _ = event_tx.send(RuntimeEvent::MeterState {
+                    identity: None,
+                    mode: state.mode,
+                    range_label: state.range_label,
+                    rate: state.rate,
+                    auto_range: state.auto_range,
+                });
+            }
+            MultimeterCommand::SetRate(rate) => {
+                if let Err(e) = driver.set_rate(rate).await {
+                    tracing::warn!("set_rate failed: {e}");
+                }
+                let state = driver.query_state().await;
+                let _ = event_tx.send(RuntimeEvent::MeterState {
+                    identity: None,
+                    mode: state.mode,
+                    range_label: state.range_label,
+                    rate: state.rate,
+                    auto_range: state.auto_range,
+                });
+            }
+        }
     }
 
     async fn run_usbc(
