@@ -44,9 +44,33 @@ pub fn tint(base: egui::Color32, tr: u8, tg: u8, tb: u8, amount: f32) -> egui::C
 pub fn apply_theme(ctx: &egui::Context, theme: DashboardTheme) {
     let visuals = match theme {
         DashboardTheme::Light => light_visuals(),
-        DashboardTheme::Dark | DashboardTheme::System => dark_visuals(),
+        DashboardTheme::Dark => dark_visuals(),
+        DashboardTheme::System => {
+            if is_system_dark_mode() {
+                dark_visuals()
+            } else {
+                light_visuals()
+            }
+        }
     };
     ctx.set_visuals(visuals);
+}
+
+fn is_system_dark_mode() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("defaults")
+            .args(["read", "-g", "AppleInterfaceStyle"])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().eq_ignore_ascii_case("dark"))
+            .unwrap_or(true)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
+    }
 }
 
 fn dark_visuals() -> egui::Visuals {

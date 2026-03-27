@@ -178,17 +178,19 @@ pub fn show(
                 })
                 .unwrap_or_default();
 
-            // Compute min/max for labels
-            let (y_min, y_max) = if chart_data.is_empty() {
-                (0.0, 0.0)
+            // Compute min/max/avg for labels
+            let (y_min, y_max, y_avg) = if chart_data.is_empty() {
+                (0.0, 0.0, 0.0)
             } else {
                 let mut min = f64::MAX;
                 let mut max = f64::MIN;
+                let mut sum = 0.0;
                 for &[_, y] in &chart_data {
                     if y < min { min = y; }
                     if y > max { max = y; }
+                    sum += y;
                 }
-                (min, max)
+                (min, max, sum / chart_data.len() as f64)
             };
 
             // Chart with min/max labels on the right
@@ -214,7 +216,6 @@ pub fn show(
                 // Right-side min/max labels
                 if y_min != 0.0 || y_max != 0.0 {
                     let sec = theme::text_secondary(ui);
-                    let y_avg = (y_min + y_max) / 2.0;
                     ui.vertical(|ui| {
                         ui.label(
                             egui::RichText::new(format!("{y_max:.3}"))

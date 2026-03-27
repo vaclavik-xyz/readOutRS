@@ -59,6 +59,9 @@ impl Runtime {
         let mut command_rx = self.command_rx.take().expect("run called only once");
         let device_cancel = CancellationToken::new();
 
+        // Channel for forwarding commands to the USB-C device task
+        let (usbc_cmd_tx, usbc_cmd_rx) = mpsc::channel::<Command>(16);
+
         // Spawn device tasks and retain handles for join
         let mm_handle = if self.config.multimeter_enabled {
             let event_tx = self.event_tx.clone();
@@ -76,8 +79,9 @@ impl Runtime {
                 dcv_low_alarm_value: self.config.dcv_low_alarm_value,
             };
 
+            let auto_reconnect = self.config.multimeter_auto_reconnect;
             Some(tokio::spawn(async move {
-                Self::run_multimeter(use_simulator, port, sample_rate, meter_beep, meter_beep_flag, alert_config, event_tx, cancel).await;
+                Self::run_multimeter(use_simulator, port, sample_rate, meter_beep, meter_beep_flag, alert_config, event_tx, cancel, auto_reconnect).await;
             }))
         } else {
             None
@@ -89,9 +93,10 @@ impl Runtime {
             let sample_rate = self.config.sample_rate_hz;
             let use_simulator = self.config.use_simulator;
             let port = self.config.usbc_port.clone();
+            let auto_reconnect = self.config.usbc_auto_reconnect;
 
             Some(tokio::spawn(async move {
-                Self::run_usbc(use_simulator, port, sample_rate, event_tx, cancel).await;
+                Self::run_usbc(use_simulator, port, sample_rate, event_tx, cancel, usbc_cmd_rx, auto_reconnect).await;
             }))
         } else {
             None
@@ -114,6 +119,9 @@ impl Runtime {
                                 level: readout_core::types::LogLevel::Info,
                                 message: "Port rescan requested".into(),
                             });
+                        }
+                        Some(cmd @ Command::ResetEnergy { .. }) => {
+                            let _ = usbc_cmd_tx.send(cmd).await;
                         }
                         Some(other) => {
                             tracing::debug!(?other, "command not yet handled");
@@ -147,6 +155,7 @@ impl Runtime {
         alert_config: readout_core::alerts::AlertConfiguration,
         event_tx: broadcast::Sender<RuntimeEvent>,
         cancel: CancellationToken,
+        auto_reconnect: bool,
     ) {
         tracing::info!(use_simulator, %port, sample_rate, "Starting multimeter task");
         if use_simulator {
@@ -154,13 +163,13 @@ impl Runtime {
             let mut driver = MultimeterDriver::new(transport);
             driver.set_meter_beep(meter_beep);
             driver.set_alert_config(alert_config);
-            Self::multimeter_loop(&mut driver, meter_beep_flag, event_tx, cancel).await;
+            Self::multimeter_loop(&mut driver, meter_beep_flag, event_tx, cancel, auto_reconnect).await;
         } else {
             let transport = SerialTransport::new(port, MULTIMETER_BAUD_RATE);
             let mut driver = MultimeterDriver::new(transport);
             driver.set_meter_beep(meter_beep);
             driver.set_alert_config(alert_config);
-            Self::multimeter_loop(&mut driver, meter_beep_flag, event_tx, cancel).await;
+            Self::multimeter_loop(&mut driver, meter_beep_flag, event_tx, cancel, auto_reconnect).await;
         }
     }
 
@@ -169,6 +178,7 @@ impl Runtime {
         meter_beep_flag: Arc<AtomicBool>,
         event_tx: broadcast::Sender<RuntimeEvent>,
         cancel: CancellationToken,
+        auto_reconnect: bool,
     ) {
         let mut reconnect_delay = std::time::Duration::from_millis(500);
         let mut prev_alarm = readout_core::types::AlarmState::None;
@@ -245,6 +255,7 @@ impl Runtime {
                                     if consecutive_errors >= 5 {
                                         tracing::warn!("Multimeter: too many consecutive errors, will reconnect");
                                         driver.close().await;
+                                        prev_alarm = readout_core::types::AlarmState::None;
                                         break; // break to reconnect loop
                                     }
                                     // Cancellation-aware backoff
@@ -264,6 +275,10 @@ impl Runtime {
                         }
                     }
                 }
+            }
+
+            if !auto_reconnect {
+                break;
             }
 
             // Reconnect with cancellation-aware backoff
@@ -290,16 +305,18 @@ impl Runtime {
         sample_rate: u32,
         event_tx: broadcast::Sender<RuntimeEvent>,
         cancel: CancellationToken,
+        mut cmd_rx: mpsc::Receiver<Command>,
+        auto_reconnect: bool,
     ) {
         tracing::info!(use_simulator, %port, sample_rate, "Starting USB-C task");
         if use_simulator {
             let transport = SimulatedStreamingTransport::new(sample_rate);
             let mut driver = UsbCDriver::new(transport);
-            Self::usbc_loop(&mut driver, event_tx, cancel).await;
+            Self::usbc_loop(&mut driver, event_tx, cancel, &mut cmd_rx, auto_reconnect).await;
         } else {
             let transport = SerialTransport::new(port, USBC_BAUD_RATE);
             let mut driver = UsbCDriver::new(transport);
-            Self::usbc_loop(&mut driver, event_tx, cancel).await;
+            Self::usbc_loop(&mut driver, event_tx, cancel, &mut cmd_rx, auto_reconnect).await;
         }
     }
 
@@ -307,6 +324,8 @@ impl Runtime {
         driver: &mut UsbCDriver<T>,
         event_tx: broadcast::Sender<RuntimeEvent>,
         cancel: CancellationToken,
+        cmd_rx: &mut mpsc::Receiver<Command>,
+        auto_reconnect: bool,
     ) {
         let mut reconnect_delay = std::time::Duration::from_millis(500);
 
@@ -342,6 +361,15 @@ impl Runtime {
                                 state: readout_core::types::ConnectionState::Disconnected,
                             });
                             return;
+                        }
+                        cmd = cmd_rx.recv() => {
+                            if let Some(Command::ResetEnergy { .. }) = cmd {
+                                driver.reset_energy();
+                                let _ = event_tx.send(RuntimeEvent::Log {
+                                    level: readout_core::types::LogLevel::Info,
+                                    message: "USB-C energy counter reset".into(),
+                                });
+                            }
                         }
                         result = driver.read_measurement() => {
                             match result {
@@ -379,6 +407,10 @@ impl Runtime {
                         }
                     }
                 }
+            }
+
+            if !auto_reconnect {
+                break;
             }
 
             let _ = event_tx.send(RuntimeEvent::ConnectionChanged {

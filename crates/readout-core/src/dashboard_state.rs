@@ -31,6 +31,7 @@ pub struct DashboardState {
     pub log_entries: VecDeque<LogEntry>,
     pub health: HealthMetrics,
     pub paused: bool,
+    pub log_capture_enabled: bool,
     start_time: Instant,
 }
 
@@ -70,6 +71,7 @@ impl DashboardState {
             log_entries: VecDeque::new(),
             health: HealthMetrics::default(),
             paused: false,
+            log_capture_enabled: true,
             start_time: Instant::now(),
         }
     }
@@ -157,6 +159,9 @@ impl DashboardState {
     }
 
     fn push_log(&mut self, level: LogLevel, message: String) {
+        if !self.log_capture_enabled {
+            return;
+        }
         self.log_entries.push_back(LogEntry { level, message });
         if self.log_entries.len() > LOG_BUFFER_SIZE {
             self.log_entries.pop_front();

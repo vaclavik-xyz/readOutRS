@@ -34,6 +34,8 @@ impl RuntimeHandle {
                     runtime.run(runtime_cancel).await;
                 });
 
+                let mut last_repaint = std::time::Instant::now();
+                let repaint_interval = std::time::Duration::from_millis(200);
                 loop {
                     tokio::select! {
                         _ = cancel_clone.cancelled() => break,
@@ -41,7 +43,11 @@ impl RuntimeHandle {
                             match result {
                                 Ok(event) => {
                                     let _ = std_tx.send(event);
-                                    ctx_clone.request_repaint();
+                                    let now = std::time::Instant::now();
+                                    if now.duration_since(last_repaint) >= repaint_interval {
+                                        ctx_clone.request_repaint();
+                                        last_repaint = now;
+                                    }
                                 }
                                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                                     tracing::warn!("GUI lagged {n} events");
@@ -147,6 +153,7 @@ pub struct ReadOutApp {
     ctx: egui::Context,
     applied_theme: Option<readout_persistence::config::DashboardTheme>,
     window_mode: CompactWindowMode,
+    config_save_tx: std::sync::mpsc::Sender<(AppConfiguration, PathBuf)>,
 }
 
 impl ReadOutApp {
@@ -162,6 +169,19 @@ impl ReadOutApp {
             Some(RuntimeHandle::start(&config, ctx))
         };
 
+        // Single background thread for serialized config saves (prevents race conditions)
+        let (config_save_tx, config_save_rx) =
+            std::sync::mpsc::channel::<(AppConfiguration, PathBuf)>();
+        std::thread::spawn(move || {
+            while let Ok(mut latest) = config_save_rx.recv() {
+                // Drain to latest — only the newest config matters
+                while let Ok(newer) = config_save_rx.try_recv() {
+                    latest = newer;
+                }
+                let _ = config_store::save(&latest.0, &latest.1);
+            }
+        });
+
         Self {
             runtime,
             state: DashboardState::new(),
@@ -171,7 +191,7 @@ impl ReadOutApp {
             running: !first_run,
             show_mm: config.show_mm,
             show_usbc: config.show_usbc,
-            show_log: false,
+            show_log: config.runtime_log_panel_visible,
             always_on_top: config.always_on_top,
             usbc_metric: UsbCMetric::Voltage,
             selected_range_idx: 0,
@@ -184,6 +204,7 @@ impl ReadOutApp {
                 AlarmState::None,
                 AlarmState::None,
             ),
+            config_save_tx,
             config,
         }
     }
@@ -198,12 +219,32 @@ impl ReadOutApp {
     }
 
     fn save_config_async(&self) {
-        let path = self.config_path.clone();
-        let config = self.config.clone();
-        std::thread::spawn(move || {
-            let _ = config_store::save(&config, &path);
-        });
+        let _ = self.config_save_tx.send((self.config.clone(), self.config_path.clone()));
     }
+
+    fn restart_runtime(&mut self) {
+        if let Some(mut rt) = self.runtime.take() {
+            rt.shutdown();
+        }
+        self.runtime = Some(RuntimeHandle::start(&self.config, &self.ctx));
+        self.state = DashboardState::new();
+    }
+}
+
+fn runtime_settings_changed(old: &AppConfiguration, new: &AppConfiguration) -> bool {
+    old.multimeter_port != new.multimeter_port
+        || old.usbc_port != new.usbc_port
+        || old.multimeter_enabled != new.multimeter_enabled
+        || old.usbc_enabled != new.usbc_enabled
+        || old.use_simulator != new.use_simulator
+        || old.sample_rate_hz != new.sample_rate_hz
+        || old.short_threshold != new.short_threshold
+        || old.dcv_high_alarm_enabled != new.dcv_high_alarm_enabled
+        || old.dcv_high_alarm_value != new.dcv_high_alarm_value
+        || old.dcv_low_alarm_enabled != new.dcv_low_alarm_enabled
+        || old.dcv_low_alarm_value != new.dcv_low_alarm_value
+        || old.multimeter_auto_reconnect != new.multimeter_auto_reconnect
+        || old.usbc_auto_reconnect != new.usbc_auto_reconnect
 }
 
 impl eframe::App for ReadOutApp {
@@ -264,7 +305,34 @@ impl eframe::App for ReadOutApp {
             if let Err(e) = config_store::save(&new_config, &self.config_path) {
                 tracing::error!("Failed to save config: {e:?}");
             }
+            let needs_restart = self.runtime.is_some()
+                && runtime_settings_changed(&self.config, &new_config);
             self.config = new_config;
+
+            // Sync visibility from dashboard_device_visibility setting
+            match self.config.dashboard_device_visibility {
+                readout_persistence::config::DashboardDeviceVisibility::Both => {
+                    self.show_mm = true;
+                    self.show_usbc = true;
+                }
+                readout_persistence::config::DashboardDeviceVisibility::Multimeter => {
+                    self.show_mm = true;
+                    self.show_usbc = false;
+                }
+                readout_persistence::config::DashboardDeviceVisibility::UsbC => {
+                    self.show_mm = false;
+                    self.show_usbc = true;
+                }
+            }
+            self.config.show_mm = self.show_mm;
+            self.config.show_usbc = self.show_usbc;
+
+            // Apply log capture preference
+            self.state.log_capture_enabled = self.config.runtime_log_capture_enabled;
+
+            if needs_restart {
+                self.restart_runtime();
+            }
         }
 
         widgets::log_overlay::show(ctx, &self.state, &mut self.show_log);
