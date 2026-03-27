@@ -1,4 +1,5 @@
 use crate::chart_pipeline::ChartPipeline;
+use crate::measurement_mode::MeasurementMode;
 use crate::types::*;
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
@@ -32,6 +33,11 @@ pub struct DashboardState {
     pub health: HealthMetrics,
     pub paused: bool,
     pub log_capture_enabled: bool,
+    pub meter_identity: Option<String>,
+    pub meter_mode: MeasurementMode,
+    pub meter_range_label: String,
+    pub meter_rate: MultimeterRate,
+    pub meter_auto_range: bool,
     start_time: Instant,
 }
 
@@ -72,6 +78,11 @@ impl DashboardState {
             health: HealthMetrics::default(),
             paused: false,
             log_capture_enabled: true,
+            meter_identity: None,
+            meter_mode: MeasurementMode::Unknown,
+            meter_range_label: String::new(),
+            meter_rate: MultimeterRate::Medium,
+            meter_auto_range: true,
             start_time: Instant::now(),
         }
     }
@@ -155,8 +166,14 @@ impl DashboardState {
             RuntimeEvent::Log { level, message } => {
                 self.push_log(level, message);
             }
-            RuntimeEvent::MeterState { .. } => {
-                // handled by the SCPI layer; dashboard ignores this event
+            RuntimeEvent::MeterState { identity, mode, range_label, rate, auto_range } => {
+                if let Some(id) = identity {
+                    self.meter_identity = Some(id);
+                }
+                self.meter_mode = mode;
+                self.meter_range_label = range_label;
+                self.meter_rate = rate;
+                self.meter_auto_range = auto_range;
             }
         }
     }
