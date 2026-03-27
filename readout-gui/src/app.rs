@@ -79,6 +79,56 @@ impl Drop for RuntimeHandle {
     }
 }
 
+const WINDOW_WIDTH: f32 = 320.0;
+const WINDOW_HEIGHT_MM: f32 = 238.0;
+const WINDOW_HEIGHT_MM_ALARM: f32 = 258.0;
+const WINDOW_HEIGHT_USBC: f32 = 329.0;
+const WINDOW_HEIGHT_BOTH: f32 = 524.0;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CompactWindowMode {
+    Multimeter,
+    MultimeterAlarm,
+    UsbC,
+    Both,
+}
+
+impl CompactWindowMode {
+    fn from_state(
+        show_mm: bool,
+        show_usbc: bool,
+        mm_alarm: AlarmState,
+        _usbc_alarm: AlarmState,
+    ) -> Self {
+        match (show_mm, show_usbc) {
+            (true, false) if mm_alarm != AlarmState::None => Self::MultimeterAlarm,
+            (true, false) => Self::Multimeter,
+            // USB-C and combined mode use the alarm-capable height to avoid resize churn.
+            (false, true) => Self::UsbC,
+            (true, true) => Self::Both,
+            (false, false) => Self::Multimeter,
+        }
+    }
+
+    fn height(self) -> f32 {
+        match self {
+            Self::Multimeter => WINDOW_HEIGHT_MM,
+            Self::MultimeterAlarm => WINDOW_HEIGHT_MM_ALARM,
+            Self::UsbC => WINDOW_HEIGHT_USBC,
+            Self::Both => WINDOW_HEIGHT_BOTH,
+        }
+    }
+
+    fn inner_size(self) -> egui::Vec2 {
+        egui::vec2(WINDOW_WIDTH, self.height())
+    }
+}
+
+pub(crate) fn initial_window_size(show_mm: bool, show_usbc: bool) -> [f32; 2] {
+    let mode = CompactWindowMode::from_state(show_mm, show_usbc, AlarmState::None, AlarmState::None);
+    [WINDOW_WIDTH, mode.height()]
+}
+
 pub struct ReadOutApp {
     runtime: Option<RuntimeHandle>,
     state: DashboardState,
@@ -96,6 +146,7 @@ pub struct ReadOutApp {
     config_path: PathBuf,
     ctx: egui::Context,
     applied_theme: Option<readout_persistence::config::DashboardTheme>,
+    window_mode: CompactWindowMode,
 }
 
 impl ReadOutApp {
@@ -127,6 +178,12 @@ impl ReadOutApp {
             config_path,
             ctx: ctx.clone(),
             applied_theme: None,
+            window_mode: CompactWindowMode::from_state(
+                config.show_mm,
+                config.show_usbc,
+                AlarmState::None,
+                AlarmState::None,
+            ),
             config,
         }
     }
@@ -150,6 +207,10 @@ impl ReadOutApp {
 }
 
 impl eframe::App for ReadOutApp {
+    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+        visuals.panel_fill.to_normalized_gamma_f32()
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Apply theme
         if self.applied_theme != Some(self.config.dashboard_theme) {
@@ -211,8 +272,6 @@ impl eframe::App for ReadOutApp {
         // --- Main content ---
         let mut toolbar_action = widgets::toolbar::ToolbarAction::None;
         let mut section_action = widgets::device_section::SectionAction::None;
-        let mut content_height = 0.0_f32;
-
         egui::CentralPanel::default().show(ctx, |ui| {
             let mut toolbar_state = widgets::toolbar::ToolbarState {
                 show_mm: self.show_mm,
@@ -288,18 +347,7 @@ impl eframe::App for ReadOutApp {
                 }
             }
 
-            // Measure actual content height (cursor.y = bottom of last widget)
-            content_height = ui.cursor().top() + 8.0;
         });
-
-        // Fit window to content
-        let window_height = ctx.input(|i| i.viewport_rect().height());
-        if content_height > 100.0 && (content_height - window_height).abs() > 8.0 {
-            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
-                ctx.input(|i| i.viewport_rect().width()),
-                content_height,
-            )));
-        }
 
         // Handle toolbar actions
         match toolbar_action {
@@ -374,6 +422,183 @@ impl eframe::App for ReadOutApp {
             self.save_config_async();
         }
 
+        let next_window_mode = CompactWindowMode::from_state(
+            self.show_mm,
+            self.show_usbc,
+            self.state.alarm_for(DeviceId::Multimeter),
+            self.state.alarm_for(DeviceId::UsbC),
+        );
+        if next_window_mode != self.window_mode {
+            self.window_mode = next_window_mode;
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(
+                self.window_mode.inner_size(),
+            ));
+            ctx.request_repaint();
+        }
+
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::widgets;
+    use readout_core::chart_pipeline::ChartPipeline;
+    use readout_core::measurement_mode::MeasurementMode;
+    use readout_core::types::DeviceMeasurement;
+    use std::time::Instant;
+
+    fn sample_measurement(device: DeviceId) -> DeviceMeasurement {
+        match device {
+            DeviceId::Multimeter => DeviceMeasurement {
+                timestamp: Instant::now(),
+                device,
+                primary_value: Some(12.345),
+                primary_unit: "V".into(),
+                secondary_value: None,
+                secondary_unit: None,
+                power_watts: None,
+                energy_mwh: None,
+                energy_mah: None,
+                mode: MeasurementMode::DcVoltage,
+                mode_string: "VOLT:DC".into(),
+                is_overload: false,
+                is_open: false,
+                is_short: false,
+                alarm_state: AlarmState::None,
+            },
+            DeviceId::UsbC => DeviceMeasurement {
+                timestamp: Instant::now(),
+                device,
+                primary_value: Some(5.123),
+                primary_unit: "V".into(),
+                secondary_value: Some(1.456),
+                secondary_unit: Some("A".into()),
+                power_watts: Some(7.462),
+                energy_mwh: Some(123.4),
+                energy_mah: Some(23.4),
+                mode: MeasurementMode::DcVoltage,
+                mode_string: "PD".into(),
+                is_overload: false,
+                is_open: false,
+                is_short: false,
+                alarm_state: AlarmState::None,
+            },
+        }
+    }
+
+    fn measured_content_height(
+        show_mm: bool,
+        show_usbc: bool,
+        mm_alarm: AlarmState,
+        usbc_alarm: AlarmState,
+    ) -> f32 {
+        let mut height = 0.0;
+        let ctx = egui::Context::default();
+        crate::theme::apply_theme(&ctx, readout_persistence::config::DashboardTheme::default());
+
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let content = ui.scope(|ui| {
+                    let mut toolbar_state = widgets::toolbar::ToolbarState {
+                        show_mm,
+                        show_usbc,
+                        paused: false,
+                        pc_beep_enabled: false,
+                        meter_beep_enabled: false,
+                        selected_range_idx: 0,
+                        show_log: false,
+                        always_on_top: false,
+                    };
+                    widgets::toolbar::show(ui, &mut toolbar_state);
+                    ui.separator();
+
+                    if show_mm {
+                        let mut mm_pipeline = ChartPipeline::new(64);
+                        widgets::device_section::show(
+                            ui,
+                            DeviceId::Multimeter,
+                            Some(&sample_measurement(DeviceId::Multimeter)),
+                            &ConnectionState::Connected,
+                            mm_alarm,
+                            Some(&mut mm_pipeline),
+                            0,
+                            UsbCMetric::Voltage,
+                        );
+                    }
+
+                    if show_mm && show_usbc {
+                        ui.add_space(4.0);
+                        ui.separator();
+                        ui.add_space(4.0);
+                    }
+
+                    if show_usbc {
+                        let mut usbc_pipeline = ChartPipeline::new(64);
+                        widgets::device_section::show(
+                            ui,
+                            DeviceId::UsbC,
+                            Some(&sample_measurement(DeviceId::UsbC)),
+                            &ConnectionState::Connected,
+                            usbc_alarm,
+                            Some(&mut usbc_pipeline),
+                            0,
+                            UsbCMetric::Voltage,
+                        );
+                    }
+                });
+
+                let panel_margin = ui.style().spacing.window_margin;
+                height =
+                    content.response.rect.height() + panel_margin.top as f32 + panel_margin.bottom as f32;
+            });
+        });
+
+        height
+    }
+
+    #[test]
+    fn measured_layout_heights_match_window_modes() {
+        let mm = measured_content_height(true, false, AlarmState::None, AlarmState::None);
+        let mm_alarm = measured_content_height(true, false, AlarmState::Open, AlarmState::None);
+        let usbc = measured_content_height(false, true, AlarmState::None, AlarmState::None);
+        let usbc_alarm = measured_content_height(false, true, AlarmState::None, AlarmState::HighAlarm);
+        let both = measured_content_height(true, true, AlarmState::None, AlarmState::None);
+        let both_mm_alarm = measured_content_height(true, true, AlarmState::Short, AlarmState::None);
+        let both_usbc_alarm = measured_content_height(true, true, AlarmState::None, AlarmState::LowAlarm);
+
+        assert_eq!(mm, WINDOW_HEIGHT_MM);
+        assert_eq!(mm_alarm, WINDOW_HEIGHT_MM_ALARM);
+        assert_eq!(usbc, WINDOW_HEIGHT_USBC - 20.0);
+        assert_eq!(usbc_alarm, WINDOW_HEIGHT_USBC);
+        assert_eq!(both, WINDOW_HEIGHT_BOTH - 20.0);
+        assert_eq!(both_mm_alarm, WINDOW_HEIGHT_BOTH);
+        assert_eq!(both_usbc_alarm, WINDOW_HEIGHT_BOTH);
+
+        assert_eq!(
+            CompactWindowMode::from_state(true, false, AlarmState::None, AlarmState::None).height(),
+            WINDOW_HEIGHT_MM,
+        );
+        assert_eq!(
+            CompactWindowMode::from_state(true, false, AlarmState::Short, AlarmState::None).height(),
+            WINDOW_HEIGHT_MM_ALARM,
+        );
+        assert_eq!(
+            CompactWindowMode::from_state(false, true, AlarmState::None, AlarmState::None).height(),
+            WINDOW_HEIGHT_USBC,
+        );
+        assert_eq!(
+            CompactWindowMode::from_state(false, true, AlarmState::None, AlarmState::HighAlarm).height(),
+            WINDOW_HEIGHT_USBC,
+        );
+        assert_eq!(
+            CompactWindowMode::from_state(true, true, AlarmState::None, AlarmState::None).height(),
+            WINDOW_HEIGHT_BOTH,
+        );
+        assert_eq!(
+            CompactWindowMode::from_state(true, true, AlarmState::Short, AlarmState::LowAlarm).height(),
+            WINDOW_HEIGHT_BOTH,
+        );
     }
 }
