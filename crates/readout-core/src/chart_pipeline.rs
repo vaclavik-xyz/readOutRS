@@ -138,20 +138,44 @@ impl ChartPipeline {
         result
     }
 
-    fn collect_samples_after(&mut self, cutoff: Duration) {
-        self.scratch.clear();
-        let start = if self.count < self.capacity {
+    fn logical_start(&self) -> usize {
+        if self.count < self.capacity {
             0
         } else {
             self.write_pos
-        };
+        }
+    }
 
-        for i in 0..self.count {
-            let idx = (start + i) % self.capacity;
-            let sample = self.buffer[idx];
-            if sample.0 >= cutoff {
-                self.scratch.push(sample);
+    fn physical_idx(&self, logical_idx: usize) -> usize {
+        (self.logical_start() + logical_idx) % self.capacity
+    }
+
+    fn sample_at_logical(&self, logical_idx: usize) -> ChartPoint {
+        self.buffer[self.physical_idx(logical_idx)]
+    }
+
+    fn first_logical_at_or_after(&self, cutoff: Duration) -> usize {
+        let mut left = 0;
+        let mut right = self.count;
+
+        while left < right {
+            let mid = left + (right - left) / 2;
+            if self.sample_at_logical(mid).0 < cutoff {
+                left = mid + 1;
+            } else {
+                right = mid;
             }
+        }
+
+        left
+    }
+
+    fn collect_samples_after(&mut self, cutoff: Duration) {
+        self.scratch.clear();
+        let first_visible = self.first_logical_at_or_after(cutoff);
+
+        for logical_idx in first_visible..self.count {
+            self.scratch.push(self.sample_at_logical(logical_idx));
         }
     }
 

@@ -78,3 +78,17 @@ fn downsampling_preserves_peaks() {
         .fold(f64::NEG_INFINITY, f64::max);
     assert!((max_val - 100.0).abs() < 0.001);
 }
+
+#[test]
+fn time_filter_works_after_ring_buffer_wrap() {
+    let mut pipeline = ChartPipeline::new(5);
+
+    for i in 0..10 {
+        pipeline.push(Duration::from_secs(i), i as f64);
+    }
+
+    let points = pipeline.query_with_now(Duration::from_secs(2), 10, Duration::from_secs(9));
+    let values: Vec<f64> = points.into_iter().map(|(_, v)| v).collect();
+
+    assert_eq!(values, vec![7.0, 8.0, 9.0]);
+}

@@ -2,7 +2,7 @@ use crate::widgets;
 use readout_core::dashboard_state::{DashboardState, UsbCMetric};
 use readout_core::types::{AlarmState, Command, ConnectionState, DeviceId, RuntimeEvent};
 use readout_io::runtime::Runtime;
-use readout_persistence::config::AppConfiguration;
+use readout_persistence::config::{AppConfiguration, DashboardDeviceVisibility};
 use readout_persistence::config_store;
 use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
@@ -153,7 +153,8 @@ pub struct ReadOutApp {
     ctx: egui::Context,
     applied_theme: Option<readout_persistence::config::DashboardTheme>,
     window_mode: CompactWindowMode,
-    config_save_tx: std::sync::mpsc::Sender<(AppConfiguration, PathBuf)>,
+    config_save_tx: Option<std::sync::mpsc::Sender<(AppConfiguration, PathBuf)>>,
+    config_save_thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl ReadOutApp {
@@ -172,26 +173,31 @@ impl ReadOutApp {
         // Single background thread for serialized config saves (prevents race conditions)
         let (config_save_tx, config_save_rx) =
             std::sync::mpsc::channel::<(AppConfiguration, PathBuf)>();
-        std::thread::spawn(move || {
+        let config_save_thread = std::thread::spawn(move || {
             while let Ok(mut latest) = config_save_rx.recv() {
                 // Drain to latest — only the newest config matters
                 while let Ok(newer) = config_save_rx.try_recv() {
                     latest = newer;
                 }
-                let _ = config_store::save(&latest.0, &latest.1);
+                if let Err(e) = config_store::save(&latest.0, &latest.1) {
+                    tracing::error!("Failed to save config: {e:?}");
+                }
             }
         });
 
+        let mut state = DashboardState::new();
+        state.log_capture_enabled = config.runtime_log_capture_enabled;
+
         Self {
             runtime,
-            state: DashboardState::new(),
+            state,
             settings_panel: widgets::settings::SettingsPanel::new(&config),
             wizard: widgets::first_run_wizard::FirstRunWizard::new(&config, first_run),
             audio: crate::audio::AlarmAudio::new(),
             running: !first_run,
             show_mm: config.show_mm,
             show_usbc: config.show_usbc,
-            show_log: config.runtime_log_panel_visible,
+            show_log: false,
             always_on_top: config.always_on_top,
             usbc_metric: UsbCMetric::Voltage,
             selected_range_idx: 0,
@@ -204,7 +210,8 @@ impl ReadOutApp {
                 AlarmState::None,
                 AlarmState::None,
             ),
-            config_save_tx,
+            config_save_tx: Some(config_save_tx),
+            config_save_thread: Some(config_save_thread),
             config,
         }
     }
@@ -215,11 +222,11 @@ impl ReadOutApp {
         }
         self.runtime = Some(RuntimeHandle::start(&self.config, &self.ctx));
         self.running = true;
-        self.state = DashboardState::new();
+        self.state = Self::dashboard_state_from_config(&self.config);
     }
 
     fn save_config_async(&self) {
-        let _ = self.config_save_tx.send((self.config.clone(), self.config_path.clone()));
+        self.enqueue_config_save(self.config.clone());
     }
 
     fn restart_runtime(&mut self) {
@@ -227,7 +234,58 @@ impl ReadOutApp {
             rt.shutdown();
         }
         self.runtime = Some(RuntimeHandle::start(&self.config, &self.ctx));
-        self.state = DashboardState::new();
+        self.state = Self::dashboard_state_from_config(&self.config);
+    }
+
+    fn enqueue_config_save(&self, config: AppConfiguration) {
+        if let Some(tx) = &self.config_save_tx {
+            let _ = tx.send((config, self.config_path.clone()));
+        }
+    }
+
+    fn dashboard_state_from_config(config: &AppConfiguration) -> DashboardState {
+        let mut state = DashboardState::new();
+        state.log_capture_enabled = config.runtime_log_capture_enabled;
+        state
+    }
+
+    fn sync_visibility_from_config(&mut self) {
+        match self.config.dashboard_device_visibility {
+            DashboardDeviceVisibility::Both => {
+                self.show_mm = true;
+                self.show_usbc = true;
+            }
+            DashboardDeviceVisibility::Multimeter => {
+                self.show_mm = true;
+                self.show_usbc = false;
+            }
+            DashboardDeviceVisibility::UsbC => {
+                self.show_mm = false;
+                self.show_usbc = true;
+            }
+        }
+        self.config.show_mm = self.show_mm;
+        self.config.show_usbc = self.show_usbc;
+    }
+
+    fn sync_visibility_to_config(&mut self) {
+        self.config.show_mm = self.show_mm;
+        self.config.show_usbc = self.show_usbc;
+        self.config.dashboard_device_visibility = match (self.show_mm, self.show_usbc) {
+            (true, true) => DashboardDeviceVisibility::Both,
+            (true, false) => DashboardDeviceVisibility::Multimeter,
+            (false, true) => DashboardDeviceVisibility::UsbC,
+            (false, false) => DashboardDeviceVisibility::Both,
+        };
+    }
+}
+
+impl Drop for ReadOutApp {
+    fn drop(&mut self) {
+        self.config_save_tx.take();
+        if let Some(handle) = self.config_save_thread.take() {
+            let _ = handle.join();
+        }
     }
 }
 
@@ -294,45 +352,24 @@ impl eframe::App for ReadOutApp {
 
         // Overlays
         if let Some(new_config) = self.wizard.show(ctx) {
-            if let Err(e) = config_store::save(&new_config, &self.config_path) {
-                tracing::error!("Failed to save wizard config: {e:?}");
-            }
             self.config = new_config;
+            self.sync_visibility_from_config();
+            self.enqueue_config_save(self.config.clone());
             self.start_runtime();
         }
 
         if let Some(new_config) = self.settings_panel.show(ctx) {
-            if let Err(e) = config_store::save(&new_config, &self.config_path) {
-                tracing::error!("Failed to save config: {e:?}");
-            }
             let needs_restart = self.runtime.is_some()
                 && runtime_settings_changed(&self.config, &new_config);
             self.config = new_config;
-
-            // Sync visibility from dashboard_device_visibility setting
-            match self.config.dashboard_device_visibility {
-                readout_persistence::config::DashboardDeviceVisibility::Both => {
-                    self.show_mm = true;
-                    self.show_usbc = true;
-                }
-                readout_persistence::config::DashboardDeviceVisibility::Multimeter => {
-                    self.show_mm = true;
-                    self.show_usbc = false;
-                }
-                readout_persistence::config::DashboardDeviceVisibility::UsbC => {
-                    self.show_mm = false;
-                    self.show_usbc = true;
-                }
-            }
-            self.config.show_mm = self.show_mm;
-            self.config.show_usbc = self.show_usbc;
-
-            // Apply log capture preference
-            self.state.log_capture_enabled = self.config.runtime_log_capture_enabled;
+            self.sync_visibility_from_config();
 
             if needs_restart {
                 self.restart_runtime();
+            } else {
+                self.state.log_capture_enabled = self.config.runtime_log_capture_enabled;
             }
+            self.enqueue_config_save(self.config.clone());
         }
 
         widgets::log_overlay::show(ctx, &self.state, &mut self.show_log);
@@ -485,8 +522,7 @@ impl eframe::App for ReadOutApp {
 
         // Persist visibility on change
         if self.config.show_mm != self.show_mm || self.config.show_usbc != self.show_usbc {
-            self.config.show_mm = self.show_mm;
-            self.config.show_usbc = self.show_usbc;
+            self.sync_visibility_to_config();
             self.save_config_async();
         }
 
@@ -668,5 +704,16 @@ mod tests {
             CompactWindowMode::from_state(true, true, AlarmState::Short, AlarmState::LowAlarm).height(),
             WINDOW_HEIGHT_BOTH,
         );
+    }
+
+    #[test]
+    fn log_overlay_starts_closed() {
+        let ctx = egui::Context::default();
+        let mut config = AppConfiguration::default();
+        config.runtime_log_panel_visible = true;
+
+        let app = ReadOutApp::new(config, PathBuf::from("/tmp/readout-test-config.json"), true, &ctx);
+
+        assert!(!app.show_log);
     }
 }

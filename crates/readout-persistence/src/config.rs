@@ -183,7 +183,7 @@ pub struct AppConfiguration {
     pub dashboard_device_visibility: DashboardDeviceVisibility,
     #[serde(default)]
     pub dashboard_theme: DashboardTheme,
-    #[serde(default = "default_true")]
+    #[serde(default = "default_false")]
     pub runtime_log_panel_visible: bool,
     #[serde(default = "default_true")]
     pub runtime_log_capture_enabled: bool,
@@ -203,6 +203,9 @@ pub struct AppConfiguration {
 
 fn default_true() -> bool {
     true
+}
+fn default_false() -> bool {
+    false
 }
 fn default_sample_rate() -> u32 {
     10
@@ -271,7 +274,7 @@ impl Default for AppConfiguration {
             usbc_csv_log_file_path: String::new(),
             dashboard_device_visibility: DashboardDeviceVisibility::Both,
             dashboard_theme: DashboardTheme::System,
-            runtime_log_panel_visible: true,
+            runtime_log_panel_visible: false,
             runtime_log_capture_enabled: true,
             show_mm: true,
             show_usbc: true,
@@ -381,7 +384,7 @@ impl<'de> Deserialize<'de> for AppConfiguration {
             dashboard_device_visibility: DashboardDeviceVisibility,
             #[serde(default)]
             dashboard_theme: DashboardTheme,
-            #[serde(default = "default_true")]
+            #[serde(default = "default_false")]
             runtime_log_panel_visible: bool,
             #[serde(default = "default_true")]
             runtime_log_capture_enabled: bool,
