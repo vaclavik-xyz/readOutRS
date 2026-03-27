@@ -153,6 +153,7 @@ pub struct ReadOutApp {
     ctx: egui::Context,
     applied_theme: Option<readout_persistence::config::DashboardTheme>,
     window_mode: CompactWindowMode,
+    meter_control: widgets::meter_control::MeterControlPanel,
     config_save_tx: Option<std::sync::mpsc::Sender<(AppConfiguration, PathBuf)>>,
     config_save_thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -210,6 +211,7 @@ impl ReadOutApp {
                 AlarmState::None,
                 AlarmState::None,
             ),
+            meter_control: widgets::meter_control::MeterControlPanel::new(),
             config_save_tx: Some(config_save_tx),
             config_save_thread: Some(config_save_thread),
             config,
@@ -348,6 +350,9 @@ impl eframe::App for ReadOutApp {
             if i.modifiers.command && i.key_pressed(egui::Key::Comma) {
                 self.settings_panel.open_with(&self.config);
             }
+            if i.modifiers.command && i.key_pressed(egui::Key::M) {
+                self.meter_control.open = !self.meter_control.open;
+            }
         });
 
         // Overlays
@@ -370,6 +375,32 @@ impl eframe::App for ReadOutApp {
                 self.state.log_capture_enabled = self.config.runtime_log_capture_enabled;
             }
             self.enqueue_config_save(self.config.clone());
+        }
+
+        // Meter Control viewport
+        if self.meter_control.open {
+            let connected = matches!(
+                self.state.connection_for(DeviceId::Multimeter),
+                ConnectionState::Connected
+            );
+            let command_tx = self.runtime.as_ref().map(|r| r.command_tx.clone());
+
+            let mut close_requested = false;
+            ctx.show_viewport_immediate(
+                egui::ViewportId::from_hash_of("meter_control"),
+                egui::ViewportBuilder::default()
+                    .with_title("Multimeter Control")
+                    .with_inner_size([320.0, 280.0])
+                    .with_resizable(false),
+                |ctx, _class| {
+                    close_requested = ctx.input(|i| i.viewport().close_requested());
+                    crate::theme::apply_theme(ctx, self.config.dashboard_theme);
+                    widgets::meter_control::show(ctx, &self.state, command_tx.as_ref(), connected);
+                },
+            );
+            if close_requested {
+                self.meter_control.open = false;
+            }
         }
 
         widgets::log_overlay::show(ctx, &self.state, &mut self.show_log);
@@ -502,7 +533,9 @@ impl eframe::App for ReadOutApp {
                 ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(level));
                 self.save_config_async();
             }
-            widgets::toolbar::ToolbarAction::OpenMeterControl => {}
+            widgets::toolbar::ToolbarAction::OpenMeterControl => {
+                self.meter_control.open = true;
+            }
             widgets::toolbar::ToolbarAction::None => {}
         }
 
