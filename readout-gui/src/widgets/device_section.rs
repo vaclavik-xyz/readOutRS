@@ -214,20 +214,25 @@ pub fn show(
                 // Right-side min/max labels
                 if y_min != 0.0 || y_max != 0.0 {
                     let sec = theme::text_secondary(ui);
-                    let decimals = match device {
-                        DeviceId::UsbC => 3,
-                        _ => 2,
-                    };
+                    let y_avg = (y_min + y_max) / 2.0;
                     ui.vertical(|ui| {
                         ui.label(
-                            egui::RichText::new(format!("{:.prec$}", y_max, prec = decimals))
+                            egui::RichText::new(format!("{y_max:.3}"))
                                 .size(9.0)
                                 .family(egui::FontFamily::Monospace)
                                 .color(sec),
                         );
-                        ui.add_space(ui.available_height() - 14.0);
+                        let remaining = ui.available_height() - 24.0;
+                        ui.add_space(remaining / 2.0);
                         ui.label(
-                            egui::RichText::new(format!("{:.prec$}", y_min, prec = decimals))
+                            egui::RichText::new(format!("{y_avg:.3}"))
+                                .size(9.0)
+                                .family(egui::FontFamily::Monospace)
+                                .color(sec),
+                        );
+                        ui.add_space(ui.available_height() - 12.0);
+                        ui.label(
+                            egui::RichText::new(format!("{y_min:.3}"))
                                 .size(9.0)
                                 .family(egui::FontFamily::Monospace)
                                 .color(sec),
