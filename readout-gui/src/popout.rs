@@ -131,24 +131,17 @@ fn render_toolbar(
             .selectable_label(state.show_mm, egui::RichText::new("MM").size(10.0))
             .clicked()
         {
-            if state.show_mm {
-                if state.show_usbc {
-                    state.show_mm = false;
-                }
-            } else {
-                state.show_mm = true;
+            // Only allow toggling off when the other device is visible
+            if !state.show_mm || state.show_usbc {
+                state.show_mm = !state.show_mm;
             }
         }
         if ui
             .selectable_label(state.show_usbc, egui::RichText::new("USB-C").size(10.0))
             .clicked()
         {
-            if state.show_usbc {
-                if state.show_mm {
-                    state.show_usbc = false;
-                }
-            } else {
-                state.show_usbc = true;
+            if !state.show_usbc || state.show_mm {
+                state.show_usbc = !state.show_usbc;
             }
         }
 

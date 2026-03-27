@@ -191,119 +191,121 @@ impl eframe::App for ReadOutApp {
         self.handle_keyboard_shortcuts(ctx);
 
         // Combined popout window
-        let popout_action = {
-            use std::time::Duration;
+        if self.popout_state.open {
+            let popout_action = {
+                use std::time::Duration;
 
-            let (range, _) =
-                crate::widgets::chart::RANGE_OPTIONS[self.chart_state.selected_range_idx];
-            let target_points = 200;
+                let (range, _) =
+                    crate::widgets::chart::RANGE_OPTIONS[self.chart_state.selected_range_idx];
+                let target_points = 200;
 
-            let now = self
-                .state
-                .chart_pipelines
-                .values()
-                .filter_map(|p| p.latest_timestamp())
-                .chain(
-                    self.state
-                        .usbc_chart_pipelines
-                        .values()
-                        .filter_map(|p| p.latest_timestamp()),
-                )
-                .max()
-                .unwrap_or(Duration::ZERO);
-
-            let mm_chart_data: Vec<[f64; 2]> = self
-                .state
-                .chart_pipelines
-                .get_mut(&DeviceId::Multimeter)
-                .map(|p| {
-                    p.query_with_now(range, target_points, now)
-                        .iter()
-                        .map(|(t, v)| [t.as_secs_f64(), *v])
-                        .collect()
-                })
-                .unwrap_or_default();
-
-            let usbc_chart_data: Vec<[f64; 2]> = self
-                .state
-                .usbc_chart_pipelines
-                .get_mut(&self.chart_state.usbc_metric)
-                .map(|p| {
-                    p.query_with_now(range, target_points, now)
-                        .iter()
-                        .map(|(t, v)| [t.as_secs_f64(), *v])
-                        .collect()
-                })
-                .unwrap_or_default();
-
-            let input = crate::popout::PopoutInput {
-                mm_measurement: self
+                let now = self
                     .state
-                    .latest_measurement
-                    .get(&DeviceId::Multimeter)
-                    .cloned(),
-                usbc_measurement: self
+                    .chart_pipelines
+                    .values()
+                    .filter_map(|p| p.latest_timestamp())
+                    .chain(
+                        self.state
+                            .usbc_chart_pipelines
+                            .values()
+                            .filter_map(|p| p.latest_timestamp()),
+                    )
+                    .max()
+                    .unwrap_or(Duration::ZERO);
+
+                let mm_chart_data: Vec<[f64; 2]> = self
                     .state
-                    .latest_measurement
-                    .get(&DeviceId::UsbC)
-                    .cloned(),
-                mm_connection: self.state.connection_for(DeviceId::Multimeter).clone(),
-                usbc_connection: self.state.connection_for(DeviceId::UsbC).clone(),
-                mm_alarm: self.state.alarm_for(DeviceId::Multimeter),
-                usbc_alarm: self.state.alarm_for(DeviceId::UsbC),
-                mm_chart_data,
-                usbc_chart_data,
-                paused: self.state.paused,
-                pc_beep_enabled: self.config.dashboard_beep_master_enabled,
-                meter_beep_enabled: self.config.beep_on_short_meter,
-                usbc_metric: self.chart_state.usbc_metric,
-                selected_range_idx: self.chart_state.selected_range_idx,
+                    .chart_pipelines
+                    .get_mut(&DeviceId::Multimeter)
+                    .map(|p| {
+                        p.query_with_now(range, target_points, now)
+                            .iter()
+                            .map(|(t, v)| [t.as_secs_f64(), *v])
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                let usbc_chart_data: Vec<[f64; 2]> = self
+                    .state
+                    .usbc_chart_pipelines
+                    .get_mut(&self.chart_state.usbc_metric)
+                    .map(|p| {
+                        p.query_with_now(range, target_points, now)
+                            .iter()
+                            .map(|(t, v)| [t.as_secs_f64(), *v])
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                let input = crate::popout::PopoutInput {
+                    mm_measurement: self
+                        .state
+                        .latest_measurement
+                        .get(&DeviceId::Multimeter)
+                        .cloned(),
+                    usbc_measurement: self
+                        .state
+                        .latest_measurement
+                        .get(&DeviceId::UsbC)
+                        .cloned(),
+                    mm_connection: self.state.connection_for(DeviceId::Multimeter).clone(),
+                    usbc_connection: self.state.connection_for(DeviceId::UsbC).clone(),
+                    mm_alarm: self.state.alarm_for(DeviceId::Multimeter),
+                    usbc_alarm: self.state.alarm_for(DeviceId::UsbC),
+                    mm_chart_data,
+                    usbc_chart_data,
+                    paused: self.state.paused,
+                    pc_beep_enabled: self.config.dashboard_beep_master_enabled,
+                    meter_beep_enabled: self.config.beep_on_short_meter,
+                    usbc_metric: self.chart_state.usbc_metric,
+                    selected_range_idx: self.chart_state.selected_range_idx,
+                };
+
+                crate::popout::show_combined_popout(ctx, &mut self.popout_state, input)
             };
 
-            crate::popout::show_combined_popout(ctx, &mut self.popout_state, input)
-        };
-
-        match popout_action {
-            crate::popout::PopoutAction::TogglePause => {
-                self.state.paused = !self.state.paused;
-            }
-            crate::popout::PopoutAction::TogglePcBeep => {
-                self.config.dashboard_beep_master_enabled =
-                    !self.config.dashboard_beep_master_enabled;
-                let path = self.config_path.clone();
-                let config = self.config.clone();
-                std::thread::spawn(move || {
-                    let _ = readout_persistence::config_store::save(&config, &path);
-                });
-            }
-            crate::popout::PopoutAction::ToggleMeterBeep => {
-                self.config.beep_on_short_meter = !self.config.beep_on_short_meter;
-                if let Some(ref runtime) = self.runtime {
-                    runtime.meter_beep_flag.store(
-                        self.config.beep_on_short_meter,
-                        std::sync::atomic::Ordering::Relaxed,
-                    );
+            match popout_action {
+                crate::popout::PopoutAction::TogglePause => {
+                    self.state.paused = !self.state.paused;
                 }
-                let path = self.config_path.clone();
-                let config = self.config.clone();
-                std::thread::spawn(move || {
-                    let _ = readout_persistence::config_store::save(&config, &path);
-                });
-            }
-            crate::popout::PopoutAction::ResetEnergy => {
-                if let Some(ref runtime) = self.runtime {
-                    let _ = runtime
-                        .command_tx
-                        .try_send(Command::ResetEnergy { device: DeviceId::UsbC });
+                crate::popout::PopoutAction::TogglePcBeep => {
+                    self.config.dashboard_beep_master_enabled =
+                        !self.config.dashboard_beep_master_enabled;
+                    let path = self.config_path.clone();
+                    let config = self.config.clone();
+                    std::thread::spawn(move || {
+                        let _ = readout_persistence::config_store::save(&config, &path);
+                    });
                 }
+                crate::popout::PopoutAction::ToggleMeterBeep => {
+                    self.config.beep_on_short_meter = !self.config.beep_on_short_meter;
+                    if let Some(ref runtime) = self.runtime {
+                        runtime.meter_beep_flag.store(
+                            self.config.beep_on_short_meter,
+                            std::sync::atomic::Ordering::Relaxed,
+                        );
+                    }
+                    let path = self.config_path.clone();
+                    let config = self.config.clone();
+                    std::thread::spawn(move || {
+                        let _ = readout_persistence::config_store::save(&config, &path);
+                    });
+                }
+                crate::popout::PopoutAction::ResetEnergy => {
+                    if let Some(ref runtime) = self.runtime {
+                        let _ = runtime
+                            .command_tx
+                            .try_send(Command::ResetEnergy { device: DeviceId::UsbC });
+                    }
+                }
+                crate::popout::PopoutAction::SetUsbcMetric(metric) => {
+                    self.chart_state.usbc_metric = metric;
+                }
+                crate::popout::PopoutAction::SetTimeRange(idx) => {
+                    self.chart_state.selected_range_idx = idx;
+                }
+                crate::popout::PopoutAction::None => {}
             }
-            crate::popout::PopoutAction::SetUsbcMetric(metric) => {
-                self.chart_state.usbc_metric = metric;
-            }
-            crate::popout::PopoutAction::SetTimeRange(idx) => {
-                self.chart_state.selected_range_idx = idx;
-            }
-            crate::popout::PopoutAction::None => {}
         }
 
         // First-run wizard — starts runtime when user finishes
