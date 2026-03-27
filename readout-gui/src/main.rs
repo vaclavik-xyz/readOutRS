@@ -1,6 +1,5 @@
 mod app;
 mod audio;
-mod popout;
 mod theme;
 mod widgets;
 
@@ -39,10 +38,15 @@ fn main() {
         config.use_simulator = true;
     }
 
+    let always_on_top = config.always_on_top;
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_inner_size([320.0, 500.0])
+        .with_min_inner_size([280.0, 250.0]);
+    if always_on_top {
+        viewport = viewport.with_always_on_top();
+    }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([900.0, 600.0])
-            .with_min_inner_size([640.0, 480.0]),
+        viewport,
         ..Default::default()
     };
 

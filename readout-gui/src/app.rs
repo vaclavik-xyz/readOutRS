@@ -1,6 +1,6 @@
 use crate::widgets;
-use readout_core::dashboard_state::DashboardState;
-use readout_core::types::{Command, DeviceId, RuntimeEvent};
+use readout_core::dashboard_state::{DashboardState, UsbCMetric};
+use readout_core::types::{AlarmState, Command, ConnectionState, DeviceId, RuntimeEvent};
 use readout_io::runtime::Runtime;
 use readout_persistence::config::AppConfiguration;
 use readout_persistence::config_store;
@@ -82,13 +82,16 @@ impl Drop for RuntimeHandle {
 pub struct ReadOutApp {
     runtime: Option<RuntimeHandle>,
     state: DashboardState,
-    chart_state: widgets::chart::ChartState,
     settings_panel: widgets::settings::SettingsPanel,
     wizard: widgets::first_run_wizard::FirstRunWizard,
-    popout_state: crate::popout::PopoutState,
     audio: crate::audio::AlarmAudio,
     running: bool,
-    show_log_panel: bool,
+    show_mm: bool,
+    show_usbc: bool,
+    show_log: bool,
+    always_on_top: bool,
+    usbc_metric: UsbCMetric,
+    selected_range_idx: usize,
     config: AppConfiguration,
     config_path: PathBuf,
     ctx: egui::Context,
@@ -102,7 +105,6 @@ impl ReadOutApp {
         first_run: bool,
         ctx: &egui::Context,
     ) -> Self {
-        // Defer runtime start if first-run wizard is active
         let runtime = if first_run {
             None
         } else {
@@ -112,17 +114,16 @@ impl ReadOutApp {
         Self {
             runtime,
             state: DashboardState::new(),
-            chart_state: widgets::chart::ChartState::default(),
             settings_panel: widgets::settings::SettingsPanel::new(&config),
             wizard: widgets::first_run_wizard::FirstRunWizard::new(&config, first_run),
-            popout_state: crate::popout::PopoutState {
-                open: false, // no longer persisted
-                show_mm: config.show_mm,
-                show_usbc: config.show_usbc,
-            },
             audio: crate::audio::AlarmAudio::new(),
             running: !first_run,
-            show_log_panel: true,
+            show_mm: config.show_mm,
+            show_usbc: config.show_usbc,
+            show_log: false,
+            always_on_top: config.always_on_top,
+            usbc_metric: UsbCMetric::Voltage,
+            selected_range_idx: 0,
             config,
             config_path,
             ctx: ctx.clone(),
@@ -139,43 +140,32 @@ impl ReadOutApp {
         self.state = DashboardState::new();
     }
 
-    fn handle_keyboard_shortcuts(&mut self, ctx: &egui::Context) {
-        ctx.input(|i| {
-            if i.modifiers.command && i.key_pressed(egui::Key::P) {
-                self.state.paused = !self.state.paused;
-            }
-            if i.modifiers.command && i.key_pressed(egui::Key::L) {
-                self.show_log_panel = !self.show_log_panel;
-            }
-            if i.modifiers.command && i.key_pressed(egui::Key::Comma) {
-                self.settings_panel.open_with(&self.config);
-            }
-            // Ctrl+1 / Cmd+1: toggle popout
-            if i.modifiers.command && i.key_pressed(egui::Key::Num1) {
-                self.popout_state.open = !self.popout_state.open;
-            }
+    fn save_config_async(&self) {
+        let path = self.config_path.clone();
+        let config = self.config.clone();
+        std::thread::spawn(move || {
+            let _ = config_store::save(&config, &path);
         });
     }
 }
 
 impl eframe::App for ReadOutApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Apply theme on change
+        // Apply theme
         if self.applied_theme != Some(self.config.dashboard_theme) {
             crate::theme::apply_theme(ctx, self.config.dashboard_theme);
             self.applied_theme = Some(self.config.dashboard_theme);
         }
 
-        // Drain events from runtime
+        // Drain runtime events
         if let Some(ref runtime) = self.runtime {
             while let Ok(event) = runtime.event_rx.try_recv() {
                 self.state.handle_event(event);
             }
         }
 
-        // Continuous alarm tone — on while alarm is active, off when cleared
+        // Alarm audio
         {
-            use readout_core::types::AlarmState;
             let mm_alarm = self.state.alarm_for(DeviceId::Multimeter);
             let should_sound = self.config.dashboard_beep_master_enabled
                 && match mm_alarm {
@@ -183,132 +173,24 @@ impl eframe::App for ReadOutApp {
                     AlarmState::HighAlarm | AlarmState::LowAlarm => self.config.beep_on_alarm,
                     _ => false,
                 };
-
             self.audio.set_volume(self.config.pc_beep_volume as f32);
             self.audio.set_active(should_sound);
         }
 
-        self.handle_keyboard_shortcuts(ctx);
-
-        // Combined popout window
-        if self.popout_state.open {
-            let popout_action = {
-                use std::time::Duration;
-
-                let (range, _) =
-                    crate::widgets::chart::RANGE_OPTIONS[self.chart_state.selected_range_idx];
-                let target_points = 200;
-
-                let now = self
-                    .state
-                    .chart_pipelines
-                    .values()
-                    .filter_map(|p| p.latest_timestamp())
-                    .chain(
-                        self.state
-                            .usbc_chart_pipelines
-                            .values()
-                            .filter_map(|p| p.latest_timestamp()),
-                    )
-                    .max()
-                    .unwrap_or(Duration::ZERO);
-
-                let mm_chart_data: Vec<[f64; 2]> = self
-                    .state
-                    .chart_pipelines
-                    .get_mut(&DeviceId::Multimeter)
-                    .map(|p| {
-                        p.query_with_now(range, target_points, now)
-                            .iter()
-                            .map(|(t, v)| [t.as_secs_f64(), *v])
-                            .collect()
-                    })
-                    .unwrap_or_default();
-
-                let usbc_chart_data: Vec<[f64; 2]> = self
-                    .state
-                    .usbc_chart_pipelines
-                    .get_mut(&self.chart_state.usbc_metric)
-                    .map(|p| {
-                        p.query_with_now(range, target_points, now)
-                            .iter()
-                            .map(|(t, v)| [t.as_secs_f64(), *v])
-                            .collect()
-                    })
-                    .unwrap_or_default();
-
-                let input = crate::popout::PopoutInput {
-                    mm_measurement: self
-                        .state
-                        .latest_measurement
-                        .get(&DeviceId::Multimeter)
-                        .cloned(),
-                    usbc_measurement: self
-                        .state
-                        .latest_measurement
-                        .get(&DeviceId::UsbC)
-                        .cloned(),
-                    mm_connection: self.state.connection_for(DeviceId::Multimeter).clone(),
-                    usbc_connection: self.state.connection_for(DeviceId::UsbC).clone(),
-                    mm_alarm: self.state.alarm_for(DeviceId::Multimeter),
-                    usbc_alarm: self.state.alarm_for(DeviceId::UsbC),
-                    mm_chart_data,
-                    usbc_chart_data,
-                    paused: self.state.paused,
-                    pc_beep_enabled: self.config.dashboard_beep_master_enabled,
-                    meter_beep_enabled: self.config.beep_on_short_meter,
-                    usbc_metric: self.chart_state.usbc_metric,
-                    selected_range_idx: self.chart_state.selected_range_idx,
-                };
-
-                crate::popout::show_combined_popout(ctx, &mut self.popout_state, input)
-            };
-
-            match popout_action {
-                crate::popout::PopoutAction::TogglePause => {
-                    self.state.paused = !self.state.paused;
-                }
-                crate::popout::PopoutAction::TogglePcBeep => {
-                    self.config.dashboard_beep_master_enabled =
-                        !self.config.dashboard_beep_master_enabled;
-                    let path = self.config_path.clone();
-                    let config = self.config.clone();
-                    std::thread::spawn(move || {
-                        let _ = readout_persistence::config_store::save(&config, &path);
-                    });
-                }
-                crate::popout::PopoutAction::ToggleMeterBeep => {
-                    self.config.beep_on_short_meter = !self.config.beep_on_short_meter;
-                    if let Some(ref runtime) = self.runtime {
-                        runtime.meter_beep_flag.store(
-                            self.config.beep_on_short_meter,
-                            std::sync::atomic::Ordering::Relaxed,
-                        );
-                    }
-                    let path = self.config_path.clone();
-                    let config = self.config.clone();
-                    std::thread::spawn(move || {
-                        let _ = readout_persistence::config_store::save(&config, &path);
-                    });
-                }
-                crate::popout::PopoutAction::ResetEnergy => {
-                    if let Some(ref runtime) = self.runtime {
-                        let _ = runtime
-                            .command_tx
-                            .try_send(Command::ResetEnergy { device: DeviceId::UsbC });
-                    }
-                }
-                crate::popout::PopoutAction::SetUsbcMetric(metric) => {
-                    self.chart_state.usbc_metric = metric;
-                }
-                crate::popout::PopoutAction::SetTimeRange(idx) => {
-                    self.chart_state.selected_range_idx = idx;
-                }
-                crate::popout::PopoutAction::None => {}
+        // Keyboard shortcuts
+        ctx.input(|i| {
+            if i.modifiers.command && i.key_pressed(egui::Key::P) {
+                self.state.paused = !self.state.paused;
             }
-        }
+            if i.modifiers.command && i.key_pressed(egui::Key::L) {
+                self.show_log = !self.show_log;
+            }
+            if i.modifiers.command && i.key_pressed(egui::Key::Comma) {
+                self.settings_panel.open_with(&self.config);
+            }
+        });
 
-        // First-run wizard — starts runtime when user finishes
+        // Overlays
         if let Some(new_config) = self.wizard.show(ctx) {
             if let Err(e) = config_store::save(&new_config, &self.config_path) {
                 tracing::error!("Failed to save wizard config: {e:?}");
@@ -317,7 +199,6 @@ impl eframe::App for ReadOutApp {
             self.start_runtime();
         }
 
-        // Settings window
         if let Some(new_config) = self.settings_panel.show(ctx) {
             if let Err(e) = config_store::save(&new_config, &self.config_path) {
                 tracing::error!("Failed to save config: {e:?}");
@@ -325,123 +206,156 @@ impl eframe::App for ReadOutApp {
             self.config = new_config;
         }
 
-        // Sync popout state to config for persistence
-        if self.config.show_mm != self.popout_state.show_mm
-            || self.config.show_usbc != self.popout_state.show_usbc
-        {
-            self.config.show_mm = self.popout_state.show_mm;
-            self.config.show_usbc = self.popout_state.show_usbc;
-            let path = self.config_path.clone();
-            let config = self.config.clone();
-            std::thread::spawn(move || {
-                let _ = readout_persistence::config_store::save(&config, &path);
-            });
-        }
+        widgets::log_overlay::show(ctx, &self.state, &mut self.show_log);
 
-        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        // --- Main content ---
+        let mut toolbar_action = widgets::toolbar::ToolbarAction::None;
+        let mut section_action = widgets::device_section::SectionAction::None;
 
-        // --- Header ---
-        let mut paused = self.state.paused;
-        let mut header_action = widgets::header::HeaderAction::None;
-        let header_state = widgets::header::HeaderState {
-            pc_beep_enabled: self.config.dashboard_beep_master_enabled,
-            meter_beep_enabled: self.config.beep_on_short_meter,
-            log_visible: self.show_log_panel,
-            popout_open: self.popout_state.open,
-        };
-        egui::TopBottomPanel::top("header").show(ctx, |ui| {
-            header_action = widgets::header::show(ui, &self.state, self.running, &mut paused, &header_state);
-        });
-        self.state.paused = paused;
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let mut toolbar_state = widgets::toolbar::ToolbarState {
+                show_mm: self.show_mm,
+                show_usbc: self.show_usbc,
+                paused: self.state.paused,
+                pc_beep_enabled: self.config.dashboard_beep_master_enabled,
+                meter_beep_enabled: self.config.beep_on_short_meter,
+                selected_range_idx: self.selected_range_idx,
+                show_log: self.show_log,
+                always_on_top: self.always_on_top,
+            };
 
-        match header_action {
-            widgets::header::HeaderAction::Stop => {
-                if let Some(ref runtime) = self.runtime {
-                    if let Err(e) = runtime.command_tx.try_send(Command::Stop) {
-                        tracing::warn!("Failed to send Stop command: {e}");
+            toolbar_action = widgets::toolbar::show(ui, &mut toolbar_state);
+
+            // Read back visibility changes (toolbar mutates directly)
+            self.show_mm = toolbar_state.show_mm;
+            self.show_usbc = toolbar_state.show_usbc;
+
+            ui.separator();
+
+            // Use direct field access (not connection_for/alarm_for methods)
+            // to avoid borrowing all of DashboardState while chart pipelines are mut-borrowed.
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                if self.show_mm {
+                    let default_conn = ConnectionState::Disconnected;
+                    let mm_conn = self.state.connection_state
+                        .get(&DeviceId::Multimeter)
+                        .unwrap_or(&default_conn);
+                    let mm_alarm = self.state.alarm_state
+                        .get(&DeviceId::Multimeter)
+                        .copied()
+                        .unwrap_or(AlarmState::None);
+                    let mm_pipeline = self.state.chart_pipelines.get_mut(&DeviceId::Multimeter);
+                    widgets::device_section::show(
+                        ui,
+                        DeviceId::Multimeter,
+                        self.state.latest_measurement.get(&DeviceId::Multimeter),
+                        mm_conn,
+                        mm_alarm,
+                        mm_pipeline,
+                        self.selected_range_idx,
+                        self.usbc_metric,
+                    );
+                }
+
+                if self.show_mm && self.show_usbc {
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+                }
+
+                if self.show_usbc {
+                    let default_conn = ConnectionState::Disconnected;
+                    let usbc_conn = self.state.connection_state
+                        .get(&DeviceId::UsbC)
+                        .unwrap_or(&default_conn);
+                    let usbc_alarm = self.state.alarm_state
+                        .get(&DeviceId::UsbC)
+                        .copied()
+                        .unwrap_or(AlarmState::None);
+                    let usbc_pipeline =
+                        self.state.usbc_chart_pipelines.get_mut(&self.usbc_metric);
+                    let sa = widgets::device_section::show(
+                        ui,
+                        DeviceId::UsbC,
+                        self.state.latest_measurement.get(&DeviceId::UsbC),
+                        usbc_conn,
+                        usbc_alarm,
+                        usbc_pipeline,
+                        self.selected_range_idx,
+                        self.usbc_metric,
+                    );
+                    if !matches!(sa, widgets::device_section::SectionAction::None) {
+                        section_action = sa;
                     }
                 }
-                self.running = false;
+            });
+        });
+
+        // Handle toolbar actions
+        match toolbar_action {
+            widgets::toolbar::ToolbarAction::TogglePause => {
+                self.state.paused = !self.state.paused;
             }
-            widgets::header::HeaderAction::OpenSettings => {
-                self.settings_panel.open_with(&self.config);
+            widgets::toolbar::ToolbarAction::TogglePcBeep => {
+                self.config.dashboard_beep_master_enabled =
+                    !self.config.dashboard_beep_master_enabled;
+                self.save_config_async();
             }
-            widgets::header::HeaderAction::TogglePcBeep => {
-                self.config.dashboard_beep_master_enabled = !self.config.dashboard_beep_master_enabled;
-                let path = self.config_path.clone();
-                let config = self.config.clone();
-                std::thread::spawn(move || {
-                    let _ = readout_persistence::config_store::save(&config, &path);
-                });
-            }
-            widgets::header::HeaderAction::ToggleMeterBeep => {
+            widgets::toolbar::ToolbarAction::ToggleMeterBeep => {
                 self.config.beep_on_short_meter = !self.config.beep_on_short_meter;
-                // Live-toggle via shared flag — driver sends SCPI immediately
                 if let Some(ref runtime) = self.runtime {
                     runtime.meter_beep_flag.store(
                         self.config.beep_on_short_meter,
                         std::sync::atomic::Ordering::Relaxed,
                     );
                 }
-                let path = self.config_path.clone();
-                let config = self.config.clone();
-                std::thread::spawn(move || {
-                    let _ = readout_persistence::config_store::save(&config, &path);
-                });
+                self.save_config_async();
             }
-            widgets::header::HeaderAction::ToggleLog => {
-                self.show_log_panel = !self.show_log_panel;
+            widgets::toolbar::ToolbarAction::SetTimeRange(idx) => {
+                self.selected_range_idx = idx;
             }
-            widgets::header::HeaderAction::TogglePopout => {
-                self.popout_state.open = !self.popout_state.open;
+            widgets::toolbar::ToolbarAction::OpenSettings => {
+                self.settings_panel.open_with(&self.config);
             }
-            widgets::header::HeaderAction::None => {}
+            widgets::toolbar::ToolbarAction::ToggleLog => {
+                self.show_log = !self.show_log;
+            }
+            widgets::toolbar::ToolbarAction::ToggleAlwaysOnTop => {
+                self.always_on_top = !self.always_on_top;
+                self.config.always_on_top = self.always_on_top;
+                let level = if self.always_on_top {
+                    egui::viewport::WindowLevel::AlwaysOnTop
+                } else {
+                    egui::viewport::WindowLevel::Normal
+                };
+                ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(level));
+                self.save_config_async();
+            }
+            widgets::toolbar::ToolbarAction::None => {}
         }
 
-        // --- Status strip ---
-        egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
-            widgets::status_strip::show(ui, &self.state, self.config.use_simulator);
-        });
-
-        // --- Log panel ---
-        if self.show_log_panel {
-            egui::TopBottomPanel::bottom("log_panel")
-                .resizable(true)
-                .min_height(60.0)
-                .default_height(150.0)
-                .show(ctx, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.strong("Log");
-                        if ui.small_button("✕").clicked() {
-                            self.show_log_panel = false;
-                        }
-                    });
-                    ui.separator();
-                    widgets::log_panel::show(ui, &self.state);
-                });
+        // Handle device section actions
+        match section_action {
+            widgets::device_section::SectionAction::ResetEnergy => {
+                if let Some(ref runtime) = self.runtime {
+                    let _ = runtime
+                        .command_tx
+                        .try_send(Command::ResetEnergy { device: DeviceId::UsbC });
+                }
+            }
+            widgets::device_section::SectionAction::SetUsbcMetric(metric) => {
+                self.usbc_metric = metric;
+            }
+            widgets::device_section::SectionAction::None => {}
         }
 
-        // --- Central: device cards + chart ---
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.columns(2, |cols| {
-                widgets::device_card::show(
-                    &mut cols[0],
-                    DeviceId::Multimeter,
-                    self.state.latest_measurement.get(&DeviceId::Multimeter),
-                    self.state.alarm_for(DeviceId::Multimeter),
-                    self.state.connection_for(DeviceId::Multimeter),
-                );
-                widgets::device_card::show(
-                    &mut cols[1],
-                    DeviceId::UsbC,
-                    self.state.latest_measurement.get(&DeviceId::UsbC),
-                    self.state.alarm_for(DeviceId::UsbC),
-                    self.state.connection_for(DeviceId::UsbC),
-                );
-            });
+        // Persist visibility on change
+        if self.config.show_mm != self.show_mm || self.config.show_usbc != self.show_usbc {
+            self.config.show_mm = self.show_mm;
+            self.config.show_usbc = self.show_usbc;
+            self.save_config_async();
+        }
 
-            ui.add_space(6.0);
-            widgets::chart::show(ui, &mut self.state.chart_pipelines, &mut self.state.usbc_chart_pipelines, &mut self.chart_state);
-        });
+        ctx.request_repaint_after(std::time::Duration::from_millis(250));
     }
 }
