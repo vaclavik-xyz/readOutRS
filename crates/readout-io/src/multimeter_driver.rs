@@ -35,9 +35,20 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
     pub async fn connect(&mut self) -> Result<(), TransportError> {
         self.transport.open().await?;
 
-        // Query initial mode
-        if let Ok(Some(mode)) = self.transport.query("FUNC?").await {
-            self.current_mode = mode;
+        // Verify the device actually responds — a serial port can be opened
+        // even if the device on the other end is powered off.
+        match self.transport.query("FUNC?").await {
+            Ok(Some(mode)) => {
+                self.current_mode = mode;
+            }
+            Ok(None) => {
+                self.transport.close().await;
+                return Err(TransportError::Timeout);
+            }
+            Err(e) => {
+                self.transport.close().await;
+                return Err(e);
+            }
         }
 
         // Configure beeper based on config
