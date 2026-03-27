@@ -183,7 +183,14 @@ pub fn show(
                 .allow_drag(false)
                 .allow_zoom(false)
                 .allow_scroll(false)
-                .show_axes([false, false])
+                .custom_x_axes(vec![])
+                .custom_y_axes(vec![
+                    egui_plot::AxisHints::new_y()
+                        .placement(egui_plot::HPlacement::Right)
+                        .formatter(|val, _range| {
+                            format!("{:.2}", val.value)
+                        }),
+                ])
                 .show(ui, |plot_ui| {
                     if !chart_data.is_empty() {
                         plot_ui.line(
