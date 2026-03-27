@@ -296,6 +296,14 @@ impl eframe::App for ReadOutApp {
             widgets::toolbar::ToolbarAction::TogglePause => {
                 self.state.paused = !self.state.paused;
             }
+            widgets::toolbar::ToolbarAction::ClearCharts => {
+                for pipeline in self.state.chart_pipelines.values_mut() {
+                    pipeline.clear();
+                }
+                for pipeline in self.state.usbc_chart_pipelines.values_mut() {
+                    pipeline.clear();
+                }
+            }
             widgets::toolbar::ToolbarAction::TogglePcBeep => {
                 self.config.dashboard_beep_master_enabled =
                     !self.config.dashboard_beep_master_enabled;

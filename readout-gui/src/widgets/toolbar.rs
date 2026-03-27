@@ -24,6 +24,7 @@ pub enum ToolbarAction {
     #[default]
     None,
     TogglePause,
+    ClearCharts,
     TogglePcBeep,
     ToggleMeterBeep,
     SetTimeRange(usize),
@@ -63,6 +64,14 @@ pub fn show(ui: &mut egui::Ui, state: &mut ToolbarState) -> ToolbarAction {
             .clicked()
         {
             action = ToolbarAction::TogglePause;
+        }
+
+        if ui
+            .button(egui::RichText::new("⟲").size(10.0))
+            .on_hover_text("Clear charts")
+            .clicked()
+        {
+            action = ToolbarAction::ClearCharts;
         }
 
         ui.separator();
