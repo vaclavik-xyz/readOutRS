@@ -187,8 +187,13 @@ pub fn show(
                 .custom_y_axes(vec![
                     egui_plot::AxisHints::new_y()
                         .placement(egui_plot::HPlacement::Right)
-                        .formatter(|val, _range| {
-                            format!("{:.2}", val.value)
+                        .formatter(|mark, _range| {
+                            let decimals = if mark.step_size >= 10.0 { 0 }
+                                else if mark.step_size >= 1.0 { 1 }
+                                else if mark.step_size >= 0.1 { 2 }
+                                else if mark.step_size >= 0.01 { 3 }
+                                else { 4 };
+                            format!("{:.prec$}", mark.value, prec = decimals)
                         }),
                 ])
                 .show(ui, |plot_ui| {
