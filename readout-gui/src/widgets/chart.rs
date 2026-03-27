@@ -1,10 +1,11 @@
+use crate::theme::{self, colors};
 use readout_core::chart_pipeline::ChartPipeline;
 use readout_core::dashboard_state::{UsbCMetric, USBC_METRICS};
 use readout_core::types::DeviceId;
 use std::collections::HashMap;
 use std::time::Duration;
 
-const RANGE_OPTIONS: &[(Duration, &str)] = &[
+pub const RANGE_OPTIONS: &[(Duration, &str)] = &[
     (Duration::from_secs(120), "2m"),
     (Duration::from_secs(300), "5m"),
     (Duration::from_secs(600), "10m"),
@@ -34,9 +35,13 @@ pub fn show(
     usbc_pipelines: &mut HashMap<UsbCMetric, ChartPipeline>,
     chart_state: &mut ChartState,
 ) {
-    // Controls row: range picker + USB-C metric selector
+    // Controls row
     ui.horizontal(|ui| {
-        ui.label("Range:");
+        ui.label(
+            egui::RichText::new("Range:")
+                .size(11.0)
+                .color(theme::text_secondary(ui)),
+        );
         for (i, (_, label)) in RANGE_OPTIONS.iter().enumerate() {
             let selected = i == chart_state.selected_range_idx;
             if ui.selectable_label(selected, *label).clicked() {
@@ -46,7 +51,11 @@ pub fn show(
 
         ui.separator();
 
-        ui.label("USB-C:");
+        ui.label(
+            egui::RichText::new("USB-C:")
+                .size(11.0)
+                .color(theme::text_secondary(ui)),
+        );
         for (metric, label) in USBC_METRICS {
             let selected = chart_state.usbc_metric == *metric;
             if ui.selectable_label(selected, *label).clicked() {
@@ -55,7 +64,10 @@ pub fn show(
         }
 
         ui.separator();
-        if ui.selectable_label(chart_state.split_charts, "Split").clicked() {
+        if ui
+            .selectable_label(chart_state.split_charts, "Split")
+            .clicked()
+        {
             chart_state.split_charts = !chart_state.split_charts;
         }
     });
@@ -63,7 +75,6 @@ pub fn show(
     let (range, _) = RANGE_OPTIONS[chart_state.selected_range_idx];
     let target_points = (ui.available_width() as usize).max(100);
 
-    // Use a shared "now" for both pipelines so they align on the same time window.
     let now = pipelines
         .values()
         .filter_map(|p| p.latest_timestamp())
@@ -71,7 +82,6 @@ pub fn show(
         .max()
         .unwrap_or(Duration::ZERO);
 
-    // Multimeter data
     let mm_data: Vec<[f64; 2]> = pipelines
         .get_mut(&DeviceId::Multimeter)
         .map(|p| {
@@ -82,7 +92,6 @@ pub fn show(
         })
         .unwrap_or_default();
 
-    // USB-C data — from selected metric pipeline
     let usbc_data: Vec<[f64; 2]> = usbc_pipelines
         .get_mut(&chart_state.usbc_metric)
         .map(|p| {
@@ -99,8 +108,10 @@ pub fn show(
         .map(|(_, l)| format!("USB-C ({l})"))
         .unwrap_or_else(|| "USB-C".into());
 
+    let mm_stroke = egui::Stroke::new(2.0, colors::MM_LINE);
+    let usbc_stroke = egui::Stroke::new(2.0, colors::USBC_LINE);
+
     if chart_state.split_charts {
-        // Two plots stacked vertically, each 50% height
         let available_height = ui.available_height();
         let half = available_height / 2.0 - 4.0;
 
@@ -112,11 +123,7 @@ pub fn show(
             .show(ui, |plot_ui| {
                 if !mm_data.is_empty() {
                     plot_ui.line(
-                        egui_plot::Line::new("Multimeter", mm_data)
-                            .stroke(egui::Stroke::new(
-                                1.5,
-                                egui::Color32::from_rgb(100, 180, 255),
-                            )),
+                        egui_plot::Line::new("Multimeter", mm_data).stroke(mm_stroke),
                     );
                 }
             });
@@ -131,16 +138,11 @@ pub fn show(
             .show(ui, |plot_ui| {
                 if !usbc_data.is_empty() {
                     plot_ui.line(
-                        egui_plot::Line::new(usbc_label, usbc_data)
-                            .stroke(egui::Stroke::new(
-                                1.5,
-                                egui::Color32::from_rgb(255, 160, 80),
-                            )),
+                        egui_plot::Line::new(usbc_label, usbc_data).stroke(usbc_stroke),
                     );
                 }
             });
     } else {
-        // Combined chart
         egui_plot::Plot::new("main_chart")
             .height(200.0)
             .allow_drag(false)
@@ -149,20 +151,12 @@ pub fn show(
             .show(ui, |plot_ui| {
                 if !mm_data.is_empty() {
                     plot_ui.line(
-                        egui_plot::Line::new("Multimeter", mm_data)
-                            .stroke(egui::Stroke::new(
-                                1.5,
-                                egui::Color32::from_rgb(100, 180, 255),
-                            )),
+                        egui_plot::Line::new("Multimeter", mm_data).stroke(mm_stroke),
                     );
                 }
                 if !usbc_data.is_empty() {
                     plot_ui.line(
-                        egui_plot::Line::new(usbc_label, usbc_data)
-                            .stroke(egui::Stroke::new(
-                                1.5,
-                                egui::Color32::from_rgb(255, 160, 80),
-                            )),
+                        egui_plot::Line::new(usbc_label, usbc_data).stroke(usbc_stroke),
                     );
                 }
             });
