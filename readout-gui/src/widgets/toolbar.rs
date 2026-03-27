@@ -88,7 +88,11 @@ pub fn show(ui: &mut egui::Ui, state: &mut ToolbarState) -> ToolbarAction {
             action = ToolbarAction::ToggleMeterBeep;
         }
 
-        ui.separator();
+    });
+
+    // Row 2: time range + log/settings/pin
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
 
         for (i, (_, label)) in RANGE_OPTIONS.iter().enumerate() {
             let selected = i == state.selected_range_idx;
@@ -99,20 +103,20 @@ pub fn show(ui: &mut egui::Ui, state: &mut ToolbarState) -> ToolbarAction {
                 action = ToolbarAction::SetTimeRange(i);
             }
         }
-    });
 
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing.x = 4.0;
+        ui.separator();
 
         if ui
-            .selectable_label(state.show_log, egui::RichText::new("📋 Log").size(10.0))
+            .selectable_label(state.show_log, egui::RichText::new("📋").size(10.0))
+            .on_hover_text("Log")
             .clicked()
         {
             action = ToolbarAction::ToggleLog;
         }
 
         if ui
-            .button(egui::RichText::new("⚙ Settings").size(10.0))
+            .button(egui::RichText::new("⚙").size(10.0))
+            .on_hover_text("Settings")
             .clicked()
         {
             action = ToolbarAction::OpenSettings;

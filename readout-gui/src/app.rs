@@ -367,9 +367,9 @@ impl eframe::App for ReadOutApp {
             self.prev_show_mm = self.show_mm;
             self.prev_show_usbc = self.show_usbc;
 
-            // Estimate target height: toolbar ~50, device section ~260, separator ~12
-            let toolbar_h = 50.0_f32;
-            let section_h = 260.0_f32;
+            // Estimate target height: toolbar ~45 (2 rows), device section ~280, separator ~12
+            let toolbar_h = 45.0_f32;
+            let section_h = 280.0_f32;
             let sep_h = 12.0_f32;
             let n_sections = self.show_mm as u8 + self.show_usbc as u8;
             let target = toolbar_h
@@ -379,16 +379,18 @@ impl eframe::App for ReadOutApp {
         }
 
         if let Some(target) = self.target_height {
-            let current = ctx.input(|i| i.viewport().inner_rect.unwrap_or(i.viewport_rect()).height());
+            let current = ctx.input(|i| i.viewport_rect().height());
             let diff = target - current;
             if diff.abs() < 2.0 {
                 self.target_height = None;
             } else {
-                let new_height = current + diff * 0.15;
+                let new_height = current + diff * 0.3;
                 ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
-                    ctx.input(|i| i.viewport().inner_rect.unwrap_or(i.viewport_rect()).width()),
+                    ctx.input(|i| i.viewport_rect().width()),
                     new_height,
                 )));
+                // Fast repaint during animation
+                ctx.request_repaint();
             }
         }
 

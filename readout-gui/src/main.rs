@@ -40,8 +40,8 @@ fn main() {
 
     let always_on_top = config.always_on_top;
     let mut viewport = egui::ViewportBuilder::default()
-        .with_inner_size([320.0, 500.0])
-        .with_min_inner_size([280.0, 250.0]);
+        .with_inner_size([320.0, 640.0])
+        .with_min_inner_size([280.0, 300.0]);
     if always_on_top {
         viewport = viewport.with_always_on_top();
     }
