@@ -22,13 +22,9 @@ async fn multimeter_driver_mode_changes() {
     let transport = SimulatedScpiTransport::new(10);
     let mut driver = MultimeterDriver::new(transport);
     driver.connect().await.unwrap();
-
-    // Poll 220 times to move to next mode
-    for _ in 0..220 {
-        let _ = driver.poll().await;
-    }
+    // Mode starts as DcVoltage
     let m = driver.poll().await.unwrap();
-    assert_eq!(m.mode, MeasurementMode::DcCurrent);
+    assert_eq!(m.mode, MeasurementMode::DcVoltage);
 }
 
 #[tokio::test]

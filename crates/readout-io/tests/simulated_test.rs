@@ -50,13 +50,79 @@ async fn scpi_beeper_control() {
 async fn scpi_mode_cycling() {
     let mut t = SimulatedScpiTransport::new(10);
     t.open().await.unwrap();
-
-    // Read 220 samples to advance past first mode
-    for _ in 0..220 {
+    // Mode stays fixed until CONF changes it
+    for _ in 0..300 {
         let _ = t.query("MEAS?").await;
     }
     let mode = t.query("FUNC?").await.unwrap().unwrap();
+    assert_eq!(mode, "VOLT:DC"); // still default, no cycling
+    // Switch mode via CONF
+    let _ = t.query("CONF:CURR:DC").await;
+    let mode = t.query("FUNC?").await.unwrap().unwrap();
     assert_eq!(mode, "CURR:DC");
+}
+
+#[tokio::test]
+async fn scpi_conf_changes_mode() {
+    let mut t = SimulatedScpiTransport::new(10);
+    t.open().await.unwrap();
+    let mode = t.query("FUNC?").await.unwrap().unwrap();
+    assert_eq!(mode, "VOLT:DC");
+    let _ = t.query("CONF:RES").await;
+    let mode = t.query("FUNC?").await.unwrap().unwrap();
+    assert_eq!(mode, "RES");
+    let _ = t.query("CONF:VOLT:AC").await;
+    let mode = t.query("FUNC?").await.unwrap().unwrap();
+    assert_eq!(mode, "VOLT:AC");
+}
+
+#[tokio::test]
+async fn scpi_auto_range() {
+    let mut t = SimulatedScpiTransport::new(10);
+    t.open().await.unwrap();
+    let auto = t.query("AUTO?").await.unwrap().unwrap();
+    assert_eq!(auto, "1");
+    let _ = t.query("RANGE 2").await;
+    let auto = t.query("AUTO?").await.unwrap().unwrap();
+    assert_eq!(auto, "0");
+    let _ = t.query("AUTO").await;
+    let auto = t.query("AUTO?").await.unwrap().unwrap();
+    assert_eq!(auto, "1");
+}
+
+#[tokio::test]
+async fn scpi_range_query() {
+    let mut t = SimulatedScpiTransport::new(10);
+    t.open().await.unwrap();
+    let _ = t.query("RANGE 3").await;
+    let range = t.query("RANGE?").await.unwrap().unwrap();
+    assert!(!range.is_empty());
+}
+
+#[tokio::test]
+async fn scpi_rate_control() {
+    let mut t = SimulatedScpiTransport::new(10);
+    t.open().await.unwrap();
+    let rate = t.query("RATE?").await.unwrap().unwrap();
+    assert_eq!(rate, "M");
+    let _ = t.query("RATE F").await;
+    let rate = t.query("RATE?").await.unwrap().unwrap();
+    assert_eq!(rate, "F");
+    let _ = t.query("RATE S").await;
+    let rate = t.query("RATE?").await.unwrap().unwrap();
+    assert_eq!(rate, "S");
+}
+
+#[tokio::test]
+async fn scpi_conf_resets_range_to_auto() {
+    let mut t = SimulatedScpiTransport::new(10);
+    t.open().await.unwrap();
+    let _ = t.query("RANGE 4").await;
+    let auto = t.query("AUTO?").await.unwrap().unwrap();
+    assert_eq!(auto, "0");
+    let _ = t.query("CONF:CURR:DC").await;
+    let auto = t.query("AUTO?").await.unwrap().unwrap();
+    assert_eq!(auto, "1");
 }
 
 #[tokio::test]
