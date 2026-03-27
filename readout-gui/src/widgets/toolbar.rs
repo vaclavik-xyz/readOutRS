@@ -31,6 +31,7 @@ pub enum ToolbarAction {
     OpenSettings,
     ToggleLog,
     ToggleAlwaysOnTop,
+    OpenMeterControl,
 }
 
 pub fn show(ui: &mut egui::Ui, state: &mut ToolbarState) -> ToolbarAction {
@@ -129,6 +130,16 @@ pub fn show(ui: &mut egui::Ui, state: &mut ToolbarState) -> ToolbarAction {
             .clicked()
         {
             action = ToolbarAction::OpenSettings;
+        }
+
+        if state.show_mm {
+            if ui
+                .button(egui::RichText::new("🎛").size(10.0))
+                .on_hover_text("Multimeter Control")
+                .clicked()
+            {
+                action = ToolbarAction::OpenMeterControl;
+            }
         }
 
         if ui
