@@ -1,3 +1,4 @@
+use crate::theme::colors;
 use readout_core::dashboard_state::DashboardState;
 use readout_core::types::{ConnectionState, DeviceId};
 
@@ -8,16 +9,14 @@ pub enum HeaderAction {
     TogglePcBeep,
     ToggleMeterBeep,
     ToggleLog,
-    TogglePopoutMM,
-    TogglePopoutUsbC,
+    TogglePopout,
 }
 
 pub struct HeaderState {
     pub pc_beep_enabled: bool,
     pub meter_beep_enabled: bool,
     pub log_visible: bool,
-    pub popout_mm: bool,
-    pub popout_usbc: bool,
+    pub popout_open: bool,
 }
 
 pub fn show(
@@ -32,12 +31,17 @@ pub fn show(
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
 
-        // Left: title
-        ui.strong(egui::RichText::new("readout").size(16.0));
+        // Brand title in accent color
+        ui.label(
+            egui::RichText::new("readout")
+                .size(16.0)
+                .strong()
+                .color(colors::ACCENT),
+        );
 
         ui.separator();
 
-        // Connection badges
+        // LED-dot connection badges
         connection_badge(ui, "MM", state.connection_for(DeviceId::Multimeter));
         connection_badge(ui, "USB-C", state.connection_for(DeviceId::UsbC));
 
@@ -57,14 +61,12 @@ pub fn show(
 
         ui.separator();
 
-        // Popout toggles
-        let mm_pop = if header_state.popout_mm { "⬒ MM ✓" } else { "⬒ MM" };
-        if ui.button(mm_pop).clicked() {
-            action = HeaderAction::TogglePopoutMM;
-        }
-        let usbc_pop = if header_state.popout_usbc { "⬒ USB-C ✓" } else { "⬒ USB-C" };
-        if ui.button(usbc_pop).clicked() {
-            action = HeaderAction::TogglePopoutUsbC;
+        // Popout toggle — selectable for visual state
+        if ui
+            .selectable_label(header_state.popout_open, "⬒ Popout")
+            .clicked()
+        {
+            action = HeaderAction::TogglePopout;
         }
 
         // Right-aligned controls
@@ -73,30 +75,39 @@ pub fn show(
                 action = HeaderAction::OpenSettings;
             }
 
-            let log_label = if header_state.log_visible { "📋 Log ✓" } else { "📋 Log" };
-            if ui.button(log_label).clicked() {
+            if ui
+                .selectable_label(header_state.log_visible, "📋 Log")
+                .clicked()
+            {
                 action = HeaderAction::ToggleLog;
             }
 
             ui.separator();
 
-            // Meter beep toggle
-            let meter_label = if header_state.meter_beep_enabled {
-                "🔔 Meter ✓"
+            let meter_icon = if header_state.meter_beep_enabled {
+                "🔔"
             } else {
-                "🔇 Meter"
+                "🔇"
             };
-            if ui.button(meter_label).clicked() {
+            if ui
+                .selectable_label(
+                    header_state.meter_beep_enabled,
+                    format!("{meter_icon} Meter"),
+                )
+                .clicked()
+            {
                 action = HeaderAction::ToggleMeterBeep;
             }
 
-            // PC beep toggle
-            let pc_label = if header_state.pc_beep_enabled {
-                "🔊 PC ✓"
+            let pc_icon = if header_state.pc_beep_enabled {
+                "🔊"
             } else {
-                "🔇 PC"
+                "🔇"
             };
-            if ui.button(pc_label).clicked() {
+            if ui
+                .selectable_label(header_state.pc_beep_enabled, format!("{pc_icon} PC"))
+                .clicked()
+            {
                 action = HeaderAction::TogglePcBeep;
             }
         });
@@ -106,13 +117,33 @@ pub fn show(
 }
 
 fn connection_badge(ui: &mut egui::Ui, label: &str, state: &ConnectionState) {
-    let (color, symbol) = match state {
-        ConnectionState::Connected => (egui::Color32::GREEN, "●"),
-        ConnectionState::Connecting | ConnectionState::Reconnecting => {
-            (egui::Color32::YELLOW, "◐")
-        }
-        ConnectionState::Disconnected => (egui::Color32::GRAY, "○"),
-        ConnectionState::Error(_) => (egui::Color32::RED, "✖"),
+    let color = match state {
+        ConnectionState::Connected => colors::CONNECTED,
+        ConnectionState::Connecting | ConnectionState::Reconnecting => colors::CONNECTING,
+        ConnectionState::Disconnected => colors::DISCONNECTED,
+        ConnectionState::Error(_) => colors::ERROR,
     };
-    ui.colored_label(color, format!("{symbol} {label}"));
+
+    let font = egui::FontId::proportional(12.0);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_string(), font, color);
+    let text_size = galley.size();
+    let dot_r = 3.0;
+    let gap = 5.0;
+    let pad = 2.0;
+    let total_w = pad + dot_r * 2.0 + gap + text_size.x;
+    let total_h = text_size.y;
+
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(total_w, total_h), egui::Sense::hover());
+    if ui.is_rect_visible(rect) {
+        let dot_center = egui::pos2(rect.left() + pad + dot_r, rect.center().y);
+        ui.painter().circle_filled(dot_center, dot_r, color);
+
+        let text_pos = egui::pos2(
+            rect.left() + pad + dot_r * 2.0 + gap,
+            rect.center().y - text_size.y / 2.0,
+        );
+        ui.painter().galley(text_pos, galley, color);
+    }
 }
