@@ -107,7 +107,6 @@ impl SettingsPanel {
                             &mut self.draft.beep_on_short_meter,
                             "Beep on short (meter)",
                         );
-                        ui.checkbox(&mut self.draft.popout_alarm_emphasis_enabled, "Popout alarm emphasis");
                     });
 
                     // --- CSV Logging ---

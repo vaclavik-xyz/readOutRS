@@ -78,42 +78,12 @@ case_insensitive_enum!(DashboardTheme {
     Dark => "dark",
 });
 
-case_insensitive_enum!(PopoutDisplayMode {
-    Mini => "mini",
-    Compact => "compact",
-    Detailed => "detailed",
-});
-
 case_insensitive_enum!(MacAlertSoundPreset {
     System => "system",
     Glass => "glass",
     Sosumi => "sosumi",
     Funk => "funk",
 });
-
-// --- PopoutWindowFrame ---
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PopoutWindowFrame {
-    pub x: f64,
-    pub y: f64,
-    pub width: f64,
-    pub height: f64,
-}
-
-// --- PopoutLayoutProfile ---
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PopoutLayoutProfile {
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub multimeter_mode: PopoutDisplayMode,
-    #[serde(default)]
-    pub usbc_mode: PopoutDisplayMode,
-    pub multimeter_frame: Option<PopoutWindowFrame>,
-    pub usbc_frame: Option<PopoutWindowFrame>,
-}
 
 // --- AppConfiguration ---
 
@@ -218,19 +188,13 @@ pub struct AppConfiguration {
     #[serde(default = "default_true")]
     pub runtime_log_capture_enabled: bool,
 
-    // Popout windows
+    // Popout window
     #[serde(default)]
-    pub multimeter_popout_mode: PopoutDisplayMode,
-    #[serde(default)]
-    pub usbc_popout_mode: PopoutDisplayMode,
-    pub multimeter_popout_frame: Option<PopoutWindowFrame>,
-    pub usbc_popout_frame: Option<PopoutWindowFrame>,
-    #[serde(default)]
-    pub popout_alarm_emphasis_enabled: bool,
-    #[serde(default)]
-    pub popout_layout_profiles: Vec<PopoutLayoutProfile>,
-    #[serde(default)]
-    pub active_popout_layout_profile_name: String,
+    pub popout_open: bool,
+    #[serde(default = "default_true")]
+    pub popout_show_mm: bool,
+    #[serde(default = "default_true")]
+    pub popout_show_usbc: bool,
 }
 
 // --- Default value helpers ---
@@ -307,13 +271,9 @@ impl Default for AppConfiguration {
             dashboard_theme: DashboardTheme::System,
             runtime_log_panel_visible: true,
             runtime_log_capture_enabled: true,
-            multimeter_popout_mode: PopoutDisplayMode::Mini,
-            usbc_popout_mode: PopoutDisplayMode::Mini,
-            multimeter_popout_frame: None,
-            usbc_popout_frame: None,
-            popout_alarm_emphasis_enabled: false,
-            popout_layout_profiles: Vec::new(),
-            active_popout_layout_profile_name: String::new(),
+            popout_open: false,
+            popout_show_mm: true,
+            popout_show_usbc: true,
         }
     }
 }
@@ -424,17 +384,11 @@ impl<'de> Deserialize<'de> for AppConfiguration {
             #[serde(default = "default_true")]
             runtime_log_capture_enabled: bool,
             #[serde(default)]
-            multimeter_popout_mode: PopoutDisplayMode,
-            #[serde(default)]
-            usbc_popout_mode: PopoutDisplayMode,
-            multimeter_popout_frame: Option<PopoutWindowFrame>,
-            usbc_popout_frame: Option<PopoutWindowFrame>,
-            #[serde(default)]
-            popout_alarm_emphasis_enabled: bool,
-            #[serde(default)]
-            popout_layout_profiles: Vec<PopoutLayoutProfile>,
-            #[serde(default)]
-            active_popout_layout_profile_name: String,
+            popout_open: bool,
+            #[serde(default = "default_true")]
+            popout_show_mm: bool,
+            #[serde(default = "default_true")]
+            popout_show_usbc: bool,
         }
 
         let inner = Inner::deserialize(deserializer)?;
@@ -477,13 +431,9 @@ impl<'de> Deserialize<'de> for AppConfiguration {
             dashboard_theme: inner.dashboard_theme,
             runtime_log_panel_visible: inner.runtime_log_panel_visible,
             runtime_log_capture_enabled: inner.runtime_log_capture_enabled,
-            multimeter_popout_mode: inner.multimeter_popout_mode,
-            usbc_popout_mode: inner.usbc_popout_mode,
-            multimeter_popout_frame: inner.multimeter_popout_frame,
-            usbc_popout_frame: inner.usbc_popout_frame,
-            popout_alarm_emphasis_enabled: inner.popout_alarm_emphasis_enabled,
-            popout_layout_profiles: inner.popout_layout_profiles,
-            active_popout_layout_profile_name: inner.active_popout_layout_profile_name,
+            popout_open: inner.popout_open,
+            popout_show_mm: inner.popout_show_mm,
+            popout_show_usbc: inner.popout_show_usbc,
         };
         config.clamp_values();
         Ok(config)
