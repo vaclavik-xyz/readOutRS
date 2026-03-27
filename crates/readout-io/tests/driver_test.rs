@@ -1,5 +1,5 @@
 use readout_core::measurement_mode::MeasurementMode;
-use readout_core::types::DeviceId;
+use readout_core::types::{DeviceId, MultimeterRange, MultimeterRate};
 use readout_io::multimeter_driver::MultimeterDriver;
 use readout_io::simulated::*;
 use readout_io::usbc_driver::UsbCDriver;
@@ -25,6 +25,66 @@ async fn multimeter_driver_mode_changes() {
     // Mode starts as DcVoltage
     let m = driver.poll().await.unwrap();
     assert_eq!(m.mode, MeasurementMode::DcVoltage);
+}
+
+#[tokio::test]
+async fn multimeter_driver_query_identity() {
+    let transport = SimulatedScpiTransport::new(10);
+    let mut driver = MultimeterDriver::new(transport);
+    driver.connect().await.unwrap();
+    let identity = driver.query_identity().await;
+    assert!(identity.is_some());
+    assert!(identity.unwrap().contains("SIMULATED"));
+}
+
+#[tokio::test]
+async fn multimeter_driver_set_mode() {
+    let transport = SimulatedScpiTransport::new(10);
+    let mut driver = MultimeterDriver::new(transport);
+    driver.connect().await.unwrap();
+    driver.set_mode(MeasurementMode::Resistance).await.unwrap();
+    let state = driver.query_state().await;
+    assert_eq!(state.mode, MeasurementMode::Resistance);
+    assert!(state.auto_range);
+}
+
+#[tokio::test]
+async fn multimeter_driver_set_range() {
+    let transport = SimulatedScpiTransport::new(10);
+    let mut driver = MultimeterDriver::new(transport);
+    driver.connect().await.unwrap();
+    driver.set_range(MultimeterRange::Manual(4)).await.unwrap();
+    let state = driver.query_state().await;
+    assert!(!state.auto_range);
+    assert!(!state.range_label.is_empty());
+    driver.set_range(MultimeterRange::Auto).await.unwrap();
+    let state = driver.query_state().await;
+    assert!(state.auto_range);
+}
+
+#[tokio::test]
+async fn multimeter_driver_set_rate() {
+    let transport = SimulatedScpiTransport::new(10);
+    let mut driver = MultimeterDriver::new(transport);
+    driver.connect().await.unwrap();
+    driver.set_rate(MultimeterRate::Fast).await.unwrap();
+    let state = driver.query_state().await;
+    assert_eq!(state.rate, MultimeterRate::Fast);
+    driver.set_rate(MultimeterRate::Slow).await.unwrap();
+    let state = driver.query_state().await;
+    assert_eq!(state.rate, MultimeterRate::Slow);
+}
+
+#[tokio::test]
+async fn multimeter_driver_query_state() {
+    let transport = SimulatedScpiTransport::new(10);
+    let mut driver = MultimeterDriver::new(transport);
+    driver.connect().await.unwrap();
+    let state = driver.query_state().await;
+    assert_eq!(state.mode, MeasurementMode::DcVoltage);
+    assert_eq!(state.rate, MultimeterRate::Medium);
+    assert!(state.auto_range);
+    assert!(!state.range_label.is_empty());
 }
 
 #[tokio::test]
