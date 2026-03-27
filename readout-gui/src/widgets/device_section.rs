@@ -178,35 +178,77 @@ pub fn show(
                 })
                 .unwrap_or_default();
 
-            egui_plot::Plot::new(chart_id)
-                .height(80.0)
-                .allow_drag(false)
-                .allow_zoom(false)
-                .allow_scroll(false)
-                .custom_x_axes(vec![])
-                .custom_y_axes(vec![
-                    egui_plot::AxisHints::new_y()
-                        .placement(egui_plot::HPlacement::Right)
-                        .formatter(|mark, _range| {
-                            let decimals = if mark.step_size >= 10.0 { 0 }
-                                else if mark.step_size >= 1.0 { 1 }
-                                else if mark.step_size >= 0.1 { 2 }
-                                else if mark.step_size >= 0.01 { 3 }
-                                else { 4 };
-                            format!("{:.prec$}", mark.value, prec = decimals)
-                        }),
-                ])
-                .show(ui, |plot_ui| {
-                    if !chart_data.is_empty() {
-                        plot_ui.line(
-                            egui_plot::Line::new(title, chart_data)
-                                .stroke(egui::Stroke::new(1.5, line_color)),
-                        );
-                    }
+            // Compute min/max for labels
+            let (y_min, y_max) = if chart_data.is_empty() {
+                (0.0, 0.0)
+            } else {
+                let mut min = f64::MAX;
+                let mut max = f64::MIN;
+                for &[_, y] in &chart_data {
+                    if y < min { min = y; }
+                    if y > max { max = y; }
+                }
+                (min, max)
+            };
+
+            // Chart with min/max labels on the right
+            ui.horizontal(|ui| {
+                let chart_width = ui.available_width() - 45.0;
+                ui.allocate_ui(egui::vec2(chart_width, 80.0), |ui| {
+                    egui_plot::Plot::new(chart_id)
+                        .height(80.0)
+                        .allow_drag(false)
+                        .allow_zoom(false)
+                        .allow_scroll(false)
+                        .show_axes([false, false])
+                        .show(ui, |plot_ui| {
+                            if !chart_data.is_empty() {
+                                plot_ui.line(
+                                    egui_plot::Line::new(title, chart_data)
+                                        .stroke(egui::Stroke::new(1.5, line_color)),
+                                );
+                            }
+                        });
                 });
+
+                // Right-side min/max labels
+                if y_min != 0.0 || y_max != 0.0 {
+                    let sec = theme::text_secondary(ui);
+                    ui.vertical(|ui| {
+                        ui.label(
+                            egui::RichText::new(format_compact(y_max))
+                                .size(9.0)
+                                .family(egui::FontFamily::Monospace)
+                                .color(sec),
+                        );
+                        ui.add_space(ui.available_height() - 14.0);
+                        ui.label(
+                            egui::RichText::new(format_compact(y_min))
+                                .size(9.0)
+                                .family(egui::FontFamily::Monospace)
+                                .color(sec),
+                        );
+                    });
+                }
+            });
         });
 
     action
+}
+
+fn format_compact(v: f64) -> String {
+    let abs = v.abs();
+    if abs >= 100.0 {
+        format!("{:.0}", v)
+    } else if abs >= 10.0 {
+        format!("{:.1}", v)
+    } else if abs >= 1.0 {
+        format!("{:.2}", v)
+    } else if abs >= 0.1 {
+        format!("{:.3}", v)
+    } else {
+        format!("{:.4}", v)
+    }
 }
 
 fn connection_led(ui: &mut egui::Ui, state: &ConnectionState) {
