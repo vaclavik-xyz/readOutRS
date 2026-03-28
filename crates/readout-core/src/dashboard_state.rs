@@ -14,6 +14,7 @@ pub enum UsbCMetric {
     Current,
     Power,
     Energy,
+    EnergyMah,
 }
 
 pub const USBC_METRICS: &[(UsbCMetric, &str)] = &[
@@ -21,6 +22,7 @@ pub const USBC_METRICS: &[(UsbCMetric, &str)] = &[
     (UsbCMetric::Current, "A"),
     (UsbCMetric::Power, "W"),
     (UsbCMetric::Energy, "mWh"),
+    (UsbCMetric::EnergyMah, "mAh"),
 ];
 
 pub struct DashboardState {
@@ -67,6 +69,7 @@ impl DashboardState {
         usbc_chart_pipelines.insert(UsbCMetric::Current, ChartPipeline::new(CHART_CAPACITY));
         usbc_chart_pipelines.insert(UsbCMetric::Power, ChartPipeline::new(CHART_CAPACITY));
         usbc_chart_pipelines.insert(UsbCMetric::Energy, ChartPipeline::new(CHART_CAPACITY));
+        usbc_chart_pipelines.insert(UsbCMetric::EnergyMah, ChartPipeline::new(CHART_CAPACITY));
 
         Self {
             latest_measurement: HashMap::new(),
@@ -118,6 +121,11 @@ impl DashboardState {
                         }
                         if let Some(v) = value.energy_mwh {
                             if let Some(p) = self.usbc_chart_pipelines.get_mut(&UsbCMetric::Energy) {
+                                p.push(elapsed, v);
+                            }
+                        }
+                        if let Some(v) = value.energy_mah {
+                            if let Some(p) = self.usbc_chart_pipelines.get_mut(&UsbCMetric::EnergyMah) {
                                 p.push(elapsed, v);
                             }
                         }
