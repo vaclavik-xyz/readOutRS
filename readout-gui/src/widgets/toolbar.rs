@@ -65,32 +65,6 @@ pub fn show_title_bar(ui: &mut egui::Ui, state: &TitleBarState) -> ToolbarAction
             action = ToolbarAction::ToggleShowUsbc;
         }
 
-        if state.csv_active || state.obs_active {
-            ui.add_space(6.0);
-        }
-
-        if state.csv_active {
-            ui.label(
-                egui::RichText::new(format!("{} REC", icons::RECORD))
-                    .size(9.0)
-                    .color(crate::theme::colors::ERROR),
-            )
-            .on_hover_text("CSV logging active");
-        }
-
-        if state.csv_active && state.obs_active {
-            ui.add_space(6.0);
-        }
-
-        if state.obs_active {
-            ui.label(
-                egui::RichText::new(format!("{} OBS", icons::BROADCAST))
-                    .size(9.0)
-                    .color(crate::theme::colors::CONNECTED),
-            )
-            .on_hover_text("OBS output active");
-        }
-
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
 
