@@ -115,7 +115,8 @@ pub fn show_title_bar(ui: &mut egui::Ui, state: &TitleBarState) -> ToolbarAction
                 .width(42.0)
                 .show_ui(ui, |ui| {
                     for (i, (_, label)) in RANGE_OPTIONS.iter().enumerate() {
-                        if ui.selectable_value(&mut usize::MAX, i, *label).clicked() {
+                        let selected = state.selected_range_idx == i;
+                        if ui.selectable_label(selected, *label).clicked() {
                             action = ToolbarAction::SetTimeRange(i);
                         }
                     }
