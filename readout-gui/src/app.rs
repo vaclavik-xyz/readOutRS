@@ -216,8 +216,7 @@ impl ReadOutApp {
             }
         });
 
-        let mut state = DashboardState::new();
-        state.log_capture_enabled = config.runtime_log_capture_enabled;
+        let state = Self::dashboard_state_from_config(&config);
 
         Self {
             runtime,
@@ -227,8 +226,8 @@ impl ReadOutApp {
             audio: crate::audio::AlarmAudio::new(),
             running: !first_run,
             always_on_top: config.always_on_top,
-            show_mm: true,
-            show_usbc: true,
+            show_mm: config.show_mm,
+            show_usbc: config.show_usbc,
             usbc_metric: UsbCMetric::Voltage,
             selected_range_idx: 0,
             mm_chart_visible: true,

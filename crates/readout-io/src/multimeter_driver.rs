@@ -125,7 +125,8 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
     }
 
     pub async fn set_mode(&mut self, mode: MeasurementMode) -> Result<(), TransportError> {
-        let cmd = mode_to_scpi(mode).ok_or(TransportError::Timeout)?;
+        let cmd = mode_to_scpi(mode)
+            .ok_or_else(|| TransportError::ConnectionLost("unsupported measurement mode".into()))?;
         let _ = self.transport.query(cmd).await?;
         if let Ok(Some(m)) = self.transport.query("FUNC?").await {
             self.current_mode = m.trim_matches('"').to_string();
@@ -159,9 +160,8 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
     pub async fn query_state(&mut self) -> MeterStateSnapshot {
         let mode = match self.transport.query("FUNC?").await {
             Ok(Some(m)) => {
-                let clean = m.trim_matches('"').to_string();
-                self.current_mode = clean.clone();
-                MeasurementModeParser::parse(Some(&clean))
+                self.current_mode = m.trim_matches('"').to_string();
+                MeasurementModeParser::parse(Some(&self.current_mode))
             }
             _ => MeasurementModeParser::parse(Some(&self.current_mode)),
         };
