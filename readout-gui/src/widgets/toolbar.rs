@@ -39,7 +39,7 @@ pub fn show_title_bar(ui: &mut egui::Ui, state: &TitleBarState) -> ToolbarAction
     let mut action = ToolbarAction::None;
 
     // Make title bar draggable for window movement
-    let title_bar_response = ui.horizontal(|ui| {
+    let _title_bar_response = ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
 
         // Leave space for macOS traffic lights
@@ -55,7 +55,10 @@ pub fn show_title_bar(ui: &mut egui::Ui, state: &TitleBarState) -> ToolbarAction
             action = ToolbarAction::ToggleShowMm;
         }
         if ui
-            .selectable_label(state.show_usbc, egui::RichText::new("USB-C").size(10.0).strong())
+            .selectable_label(
+                state.show_usbc,
+                egui::RichText::new("USB-C").size(10.0).strong(),
+            )
             .on_hover_text("Show/hide USB-C")
             .clicked()
         {
@@ -71,7 +74,8 @@ pub fn show_title_bar(ui: &mut egui::Ui, state: &TitleBarState) -> ToolbarAction
                 egui::RichText::new(format!("{} REC", icons::RECORD))
                     .size(9.0)
                     .color(crate::theme::colors::ERROR),
-            ).on_hover_text("CSV logging active");
+            )
+            .on_hover_text("CSV logging active");
         }
 
         if state.csv_active && state.obs_active {
@@ -83,7 +87,8 @@ pub fn show_title_bar(ui: &mut egui::Ui, state: &TitleBarState) -> ToolbarAction
                 egui::RichText::new(format!("{} OBS", icons::BROADCAST))
                     .size(9.0)
                     .color(crate::theme::colors::CONNECTED),
-            ).on_hover_text("OBS output active");
+            )
+            .on_hover_text("OBS output active");
         }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -138,12 +143,15 @@ pub fn context_menu(ui: &mut egui::Ui, paused: bool) -> ToolbarAction {
     };
     if ui.button(pause_label).clicked() {
         action = ToolbarAction::TogglePause;
-        ui.close_menu();
+        ui.close();
     }
 
-    if ui.button(format!("{} Clear Charts", icons::TRASH)).clicked() {
+    if ui
+        .button(format!("{} Clear Charts", icons::TRASH))
+        .clicked()
+    {
         action = ToolbarAction::ClearCharts;
-        ui.close_menu();
+        ui.close();
     }
 
     action

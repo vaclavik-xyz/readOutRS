@@ -34,9 +34,7 @@ fn main() {
 
     let cli = Cli::parse();
 
-    let config_path = cli
-        .config
-        .unwrap_or_else(config_store::default_config_path);
+    let config_path = cli.config.unwrap_or_else(config_store::default_config_path);
 
     let first_run = !config_path.exists();
 
@@ -68,14 +66,19 @@ fn main() {
     };
 
     eframe::run_native(
-        "readout",
+        "readOut",
         options,
         Box::new(move |cc| {
             let mut fonts = egui::FontDefinitions::default();
             egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
             egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Bold);
             cc.egui_ctx.set_fonts(fonts);
-            Ok(Box::new(app::ReadOutApp::new(config, config_path, first_run, &cc.egui_ctx)))
+            Ok(Box::new(app::ReadOutApp::new(
+                config,
+                config_path,
+                first_run,
+                &cc.egui_ctx,
+            )))
         }),
     )
     .expect("eframe run");

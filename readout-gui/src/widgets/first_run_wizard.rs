@@ -61,12 +61,7 @@ impl FirstRunWizard {
 
                     ui.checkbox(&mut self.draft.usbc_enabled, "USB-C Power Meter");
                     if self.draft.usbc_enabled {
-                        port_selector(
-                            ui,
-                            "USB-C Port:",
-                            &self.ports,
-                            &mut self.draft.usbc_port,
-                        );
+                        port_selector(ui, "USB-C Port:", &self.ports, &mut self.draft.usbc_port);
                     }
 
                     if ui.button("Rescan ports").clicked() {

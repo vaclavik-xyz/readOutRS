@@ -1,7 +1,7 @@
 use crate::theme::{self, colors};
 use crate::widgets::toolbar::RANGE_OPTIONS;
 use readout_core::chart_pipeline::ChartPipeline;
-use readout_core::dashboard_state::{UsbCMetric, USBC_METRICS};
+use readout_core::dashboard_state::{USBC_METRICS, UsbCMetric};
 use readout_core::types::{AlarmState, ConnectionState, DeviceId, DeviceMeasurement};
 use readout_core::value_format::format_si;
 use std::time::Duration;
@@ -14,6 +14,7 @@ pub enum SectionAction {
     SetUsbcMetric(UsbCMetric),
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
     device: DeviceId,
@@ -67,8 +68,15 @@ pub fn show(
                         egui_phosphor::regular::CHART_LINE_DOWN
                     };
                     if ui
-                        .selectable_label(*chart_visible, egui::RichText::new(chart_icon).size(14.0))
-                        .on_hover_text(if *chart_visible { "Hide chart" } else { "Show chart" })
+                        .selectable_label(
+                            *chart_visible,
+                            egui::RichText::new(chart_icon).size(14.0),
+                        )
+                        .on_hover_text(if *chart_visible {
+                            "Hide chart"
+                        } else {
+                            "Show chart"
+                        })
                         .clicked()
                     {
                         *chart_visible = !*chart_visible;
@@ -137,11 +145,13 @@ pub fn show(
                                         .color(theme::text_secondary(ui)),
                                 );
                             }
-                            let (rect, reset_btn) = ui.allocate_exact_size(
-                                egui::vec2(14.0, 14.0),
-                                egui::Sense::click(),
-                            );
-                            let color = if reset_btn.hovered() { colors::ACCENT } else { theme::text_secondary(ui) };
+                            let (rect, reset_btn) = ui
+                                .allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::click());
+                            let color = if reset_btn.hovered() {
+                                colors::ACCENT
+                            } else {
+                                theme::text_secondary(ui)
+                            };
                             ui.painter().text(
                                 rect.center(),
                                 egui::Align2::CENTER_CENTER,
@@ -152,10 +162,7 @@ pub fn show(
                             if reset_btn.hovered() {
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                             }
-                            if reset_btn
-                                .on_hover_text("Reset energy counter")
-                                .clicked()
-                            {
+                            if reset_btn.on_hover_text("Reset energy counter").clicked() {
                                 action = SectionAction::ResetEnergy;
                             }
                         });
@@ -168,10 +175,7 @@ pub fn show(
                         for (metric, label) in USBC_METRICS {
                             let selected = usbc_metric == *metric;
                             if ui
-                                .selectable_label(
-                                    selected,
-                                    egui::RichText::new(*label).size(10.0),
-                                )
+                                .selectable_label(selected, egui::RichText::new(*label).size(10.0))
                                 .clicked()
                             {
                                 action = SectionAction::SetUsbcMetric(*metric);
@@ -237,8 +241,12 @@ pub fn show(
                 let mut max = f64::MIN;
                 let mut sum = 0.0;
                 for &[_, y] in &chart_data {
-                    if y < min { min = y; }
-                    if y > max { max = y; }
+                    if y < min {
+                        min = y;
+                    }
+                    if y > max {
+                        max = y;
+                    }
                     sum += y;
                 }
                 (min, max, sum / chart_data.len() as f64)
@@ -254,6 +262,8 @@ pub fn show(
                         .allow_zoom(false)
                         .allow_scroll(false)
                         .show_axes([false, false])
+                        .show_grid(false)
+                        .auto_bounds(egui::Vec2b::new(true, true))
                         .show(ui, |plot_ui| {
                             if !chart_data.is_empty() {
                                 plot_ui.line(
@@ -296,7 +306,6 @@ pub fn show(
 
     (action, toolbar_action)
 }
-
 
 fn connection_led(ui: &mut egui::Ui, state: &ConnectionState) {
     let color = match state {

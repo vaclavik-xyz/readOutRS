@@ -2,6 +2,7 @@ use crate::theme::{self, colors};
 use readout_core::dashboard_state::DashboardState;
 use readout_core::types::LogLevel;
 
+#[allow(dead_code)]
 pub fn show(ctx: &egui::Context, state: &DashboardState, open: &mut bool) {
     if !*open {
         return;

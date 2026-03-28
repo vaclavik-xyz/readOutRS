@@ -6,15 +6,18 @@ pub struct SettingsPanel {
     prev_config: Option<AppConfiguration>,
 }
 
-fn file_picker_row(ui: &mut egui::Ui, path: &mut String) {
+fn file_picker_row(ui: &mut egui::Ui, path: &mut String, default_name: &str) {
     ui.horizontal(|ui| {
-        ui.add(egui::TextEdit::singleline(path).desired_width(ui.available_width() - 70.0));
-        if ui.button(format!("{} Browse", icons::FOLDER_OPEN)).clicked() {
+        ui.add(egui::TextEdit::singleline(path).desired_width(ui.available_width() - 90.0));
+        if ui
+            .button(format!("{} Browse", icons::FOLDER_OPEN))
+            .clicked()
+        {
             let dialog = rfd::FileDialog::new().set_file_name(
                 std::path::Path::new(path.as_str())
                     .file_name()
                     .and_then(|n| n.to_str())
-                    .unwrap_or("output.txt"),
+                    .unwrap_or(default_name),
             );
             if let Some(p) = dialog.save_file() {
                 *path = p.display().to_string();
@@ -31,6 +34,7 @@ impl SettingsPanel {
         }
     }
 
+    #[allow(dead_code)]
     pub fn open_with(&mut self, _config: &AppConfiguration) {
         self.open = true;
     }
@@ -42,6 +46,7 @@ impl SettingsPanel {
         config: &mut AppConfiguration,
         theme: readout_persistence::config::DashboardTheme,
         parent_always_on_top: bool,
+        update_available: &Option<String>,
     ) -> bool {
         if !self.open {
             return false;
@@ -127,21 +132,21 @@ impl SettingsPanel {
                     ui.collapsing("CSV Logging", |ui| {
                         ui.checkbox(&mut config.multimeter_csv_logging_enabled, "Multimeter CSV");
                         if config.multimeter_csv_logging_enabled {
-                            file_picker_row(ui, &mut config.multimeter_csv_log_file_path);
+                            file_picker_row(ui, &mut config.multimeter_csv_log_file_path, "csv_mm_output.csv");
                         }
                         ui.checkbox(&mut config.usbc_csv_logging_enabled, "USB-C CSV");
                         if config.usbc_csv_logging_enabled {
-                            file_picker_row(ui, &mut config.usbc_csv_log_file_path);
+                            file_picker_row(ui, &mut config.usbc_csv_log_file_path, "csv_usbc_output.csv");
                         }
                     });
 
                     // --- OBS Output ---
                     ui.collapsing("OBS Output", |ui| {
                         ui.label("MM file:");
-                        file_picker_row(ui, &mut config.multimeter_output_file);
+                        file_picker_row(ui, &mut config.multimeter_output_file, "obs_mm_output.txt");
                         ui.add_space(4.0);
                         ui.label("USB-C file:");
-                        file_picker_row(ui, &mut config.usbc_output_file);
+                        file_picker_row(ui, &mut config.usbc_output_file, "obs_usbc_output.txt");
                         ui.separator();
 
                         ui.label("MM output mode:");
@@ -198,6 +203,33 @@ impl SettingsPanel {
                             ui.label("Volume:");
                             ui.add(egui::Slider::new(&mut config.pc_beep_volume, 0.0..=1.0));
                         });
+                    });
+
+                    // --- About ---
+                    ui.collapsing("About", |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Version:");
+                            ui.label(readout_core::update_checker::CURRENT_VERSION);
+                        });
+                        ui.checkbox(&mut config.check_for_updates, "Check for updates on startup");
+                        if let Some(new_version) = update_available {
+                            let is_brew = readout_core::update_checker::is_homebrew();
+                            ui.colored_label(egui::Color32::from_rgb(255, 200, 50), format!("Update v{new_version} available"));
+                            if is_brew {
+                                ui.label("Run: brew upgrade readout");
+                            } else {
+                                ui.horizontal(|ui| {
+                                    ui.label("Download from GitHub:");
+                                    if ui.small_button("Open").clicked() {
+                                        let _ = std::process::Command::new("open")
+                                            .arg("https://github.com/vaclavik-xyz/readOutRS/releases/latest")
+                                            .spawn();
+                                    }
+                                });
+                            }
+                        } else if config.check_for_updates {
+                            ui.colored_label(egui::Color32::GRAY, "Up to date");
+                        }
                     });
                 });
                 });

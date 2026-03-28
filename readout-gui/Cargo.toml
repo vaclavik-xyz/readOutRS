@@ -23,3 +23,12 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 [features]
 default = ["audio"]
 audio = ["rodio"]
+
+[package.metadata.bundle]
+name = "readOut"
+identifier = "xyz.vaclavik.readout"
+icon = ["assets/readout.icns"]
+category = "public.app-category.utilities"
+short_description = "Real-time measurement dashboard for SCPI multimeters and USB-C power meters"
+copyright = "Copyright (c) 2025 Filip Vaclavik"
+osx_minimum_system_version = "13.0"

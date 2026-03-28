@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 /// Alarm audio player using rodio.
 /// Plays a continuous tone while `active` flag is set.
@@ -45,10 +45,7 @@ impl AlarmAudio {
         }
         #[cfg(not(feature = "audio"))]
         {
-            Self {
-                active,
-                volume_pct,
-            }
+            Self { active, volume_pct }
         }
     }
 
@@ -63,6 +60,7 @@ impl AlarmAudio {
         self.volume_pct.store(pct, Ordering::Relaxed);
     }
 
+    #[allow(dead_code)]
     pub fn is_active(&self) -> bool {
         self.active.load(Ordering::Relaxed)
     }
