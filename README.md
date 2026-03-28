@@ -3,10 +3,21 @@
 Real-time measurement dashboard for multimeters (SCPI) and USB-C power meters.
 
 Rust rewrite of [readOut](https://github.com/vaclavik-xyz/readOut) with two frontends:
-- **readout-gui** — desktop app (egui)
+- **readout-gui** — lightweight desktop widget (egui)
 - **readout-tui** — terminal dashboard (ratatui)
 
 Cross-platform: macOS, Linux, Windows.
+
+## Features
+
+- Live voltage, current, power, and energy readings
+- Configurable chart history (30s to 1h)
+- CSV logging for data analysis
+- OBS text file output for streaming overlays
+- Alarm system with PC and meter beep notifications
+- Multimeter remote control (mode, range, rate)
+- Always-on-top widget mode
+- Light/dark/system theme
 
 ## Architecture
 
@@ -14,13 +25,13 @@ Cross-platform: macOS, Linux, Windows.
 readOutRS/
 ├── crates/
 │   ├── readout-core/         # data types, parsers, alerts, chart pipeline
-│   ├── readout-io/           # serial port, transports, device sessions, runtime
+│   ├── readout-io/           # serial transports, device drivers, runtime
 │   └── readout-persistence/  # config, CSV logger, OBS writer
-├── readout-gui/              # egui desktop application
+├── readout-gui/              # egui desktop widget
 └── readout-tui/              # ratatui terminal dashboard
 ```
 
-Channel-based event bus (`tokio::sync::broadcast`) connects backend to frontends. Each device runs as an independent Tokio task.
+Channel-based event bus (`tokio::sync::broadcast`) connects the backend runtime to frontends. Each device runs as an independent Tokio task with automatic reconnection.
 
 ## Build
 
@@ -48,21 +59,29 @@ cargo run -p readout-tui -- --simulator
 # Unit + integration tests
 cargo test
 
-# Soak tests (longer running, behind feature flag)
+# Soak tests (longer running)
 cargo test -p readout-io --features soak -- soak --nocapture
 ```
 
-## Keyboard shortcuts
+## Keyboard shortcuts (GUI)
 
-### GUI
-- `Cmd+P` / `Ctrl+P` — pause/resume
-- `Cmd+L` / `Ctrl+L` — toggle log panel
-- `Cmd+,` / `Ctrl+,` — settings
-- `Cmd+1` / `Ctrl+1` — multimeter popout
-- `Cmd+2` / `Ctrl+2` — USB-C popout
+| Shortcut | Action |
+|----------|--------|
+| `Cmd+P` | Pause/resume |
+| `Cmd+K` | Clear charts |
+| `Cmd+M` | Meter Control |
+| `Cmd+,` | Settings |
+| Right-click | Context menu |
 
-### TUI
-- `q` — quit
-- `p` — pause/resume
-- `s` — settings
-- `←` / `→` — chart range
+## Keyboard shortcuts (TUI)
+
+| Shortcut | Action |
+|----------|--------|
+| `q` | Quit |
+| `p` | Pause/resume |
+| `s` | Settings |
+| `←` / `→` | Chart range |
+
+## License
+
+MIT
