@@ -251,7 +251,10 @@ pub fn show(
                     ui.label(egui::RichText::new(format!("Avg: {:.4}", stats.avg)).size(10.0).color(sec));
                 });
             }
-            send_command(command_tx, MultimeterCommand::QueryMathStats);
+            // Throttle stats query to ~1/sec (every 60th frame)
+            if ctx.cumulative_frame_nr() % 60 == 0 {
+                send_command(command_tx, MultimeterCommand::QueryMathStats);
+            }
         }
 
         // Reset

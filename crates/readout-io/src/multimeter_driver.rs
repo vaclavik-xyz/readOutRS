@@ -323,6 +323,7 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
             .map(|s| parse_rate(&s))
             .unwrap_or(MultimeterRate::Medium);
         let dual_display = self.query_dual_display().await;
+        self.dual_display_active = dual_display;
         let null_enabled = self.query_null().await;
 
         MeterStateSnapshot {
