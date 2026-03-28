@@ -25,6 +25,8 @@ pub fn show(
     selected_range_idx: usize,
     usbc_metric: UsbCMetric,
     chart_visible: &mut bool,
+    csv_active: bool,
+    obs_active: bool,
 ) -> (SectionAction, super::toolbar::ToolbarAction) {
     let mut action = SectionAction::None;
     let mut toolbar_action = super::toolbar::ToolbarAction::None;
@@ -59,6 +61,22 @@ pub fn show(
                         .size(11.0)
                         .color(theme::text_secondary(ui)),
                 );
+                if csv_active {
+                    ui.label(
+                        egui::RichText::new(egui_phosphor::regular::RECORD)
+                            .size(10.0)
+                            .color(crate::theme::colors::ERROR),
+                    )
+                    .on_hover_text("CSV logging");
+                }
+                if obs_active {
+                    ui.label(
+                        egui::RichText::new(egui_phosphor::regular::BROADCAST)
+                            .size(10.0)
+                            .color(crate::theme::colors::CONNECTED),
+                    )
+                    .on_hover_text("OBS output");
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     connection_led(ui, connection);
                     ui.add_space(4.0);

@@ -519,6 +519,9 @@ impl eframe::App for ReadOutApp {
                         .copied()
                         .unwrap_or(AlarmState::None);
                     let mm_pipeline = self.state.chart_pipelines.get_mut(&DeviceId::Multimeter);
+                    let mm_csv = self.config.multimeter_csv_logging_enabled
+                        && !self.config.multimeter_csv_log_file_path.is_empty();
+                    let mm_obs = !self.config.multimeter_output_file.is_empty();
                     let (_, ta) = widgets::device_section::show(
                         ui,
                         DeviceId::Multimeter,
@@ -529,6 +532,8 @@ impl eframe::App for ReadOutApp {
                         self.selected_range_idx,
                         self.usbc_metric,
                         &mut self.mm_chart_visible,
+                        mm_csv,
+                        mm_obs,
                     );
                     if !matches!(ta, widgets::toolbar::ToolbarAction::None) {
                         toolbar_action = ta;
@@ -556,6 +561,9 @@ impl eframe::App for ReadOutApp {
                         .copied()
                         .unwrap_or(AlarmState::None);
                     let usbc_pipeline = self.state.usbc_chart_pipelines.get_mut(&self.usbc_metric);
+                    let usbc_csv = self.config.usbc_csv_logging_enabled
+                        && !self.config.usbc_csv_log_file_path.is_empty();
+                    let usbc_obs = !self.config.usbc_output_file.is_empty();
                     let (sa, _) = widgets::device_section::show(
                         ui,
                         DeviceId::UsbC,
@@ -566,6 +574,8 @@ impl eframe::App for ReadOutApp {
                         self.selected_range_idx,
                         self.usbc_metric,
                         &mut self.usbc_chart_visible,
+                        usbc_csv,
+                        usbc_obs,
                     );
                     if !matches!(sa, widgets::device_section::SectionAction::None) {
                         section_action = sa;
