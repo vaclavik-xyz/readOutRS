@@ -2,7 +2,7 @@ use crate::theme;
 use egui_phosphor::regular as icons;
 use readout_core::dashboard_state::DashboardState;
 use readout_core::measurement_mode::MeasurementMode;
-use readout_core::types::{Command, MathFunction, MultimeterCommand, MultimeterRange, MultimeterRate, TempSensorType, TempUnit};
+use readout_core::types::{Command, DbReference, MathFunction, MultimeterCommand, MultimeterRange, MultimeterRate, TempSensorType, TempUnit, DB_REFERENCE_VALUES};
 
 pub struct MeterControlPanel {
     pub open: bool,
@@ -245,7 +245,36 @@ pub fn show(
                     send_command(command_tx, MultimeterCommand::StartMath(MathFunction::Null));
                 }
             }
+            if ui.selectable_label(active == Some(MathFunction::Db), "dB").clicked() {
+                if active == Some(MathFunction::Db) {
+                    send_command(command_tx, MultimeterCommand::StopMath);
+                } else {
+                    send_command(command_tx, MultimeterCommand::StartMath(MathFunction::Db));
+                }
+            }
+            if ui.selectable_label(active == Some(MathFunction::Dbm), "dBm").clicked() {
+                if active == Some(MathFunction::Dbm) {
+                    send_command(command_tx, MultimeterCommand::StopMath);
+                } else {
+                    send_command(command_tx, MultimeterCommand::StartMath(MathFunction::Dbm));
+                }
+            }
         });
+        if matches!(state.meter_math_function, Some(MathFunction::Db) | Some(MathFunction::Dbm)) {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Ref:").size(10.0));
+                egui::ComboBox::from_id_salt("db_ref")
+                    .width(60.0)
+                    .selected_text("600")
+                    .show_ui(ui, |ui| {
+                        for &ohms in DB_REFERENCE_VALUES {
+                            if ui.selectable_label(false, format!("{ohms} \u{2126}")).clicked() {
+                                send_command(command_tx, MultimeterCommand::SetDbReference(DbReference::Ohms(ohms)));
+                            }
+                        }
+                    });
+            });
+        }
         if state.meter_math_function == Some(MathFunction::Average) {
             if let Some(stats) = &state.meter_math_stats {
                 ui.horizontal(|ui| {
@@ -261,9 +290,17 @@ pub fn show(
             }
         }
 
-        // Reset
+        // Remote / Reset
         ui.add_space(4.0);
         ui.separator();
+        ui.horizontal(|ui| {
+            if ui.button(egui::RichText::new(format!("{} Lock Panel", icons::LOCK_KEY)).size(11.0)).clicked() {
+                send_command(command_tx, MultimeterCommand::SetRemoteMode(true));
+            }
+            if ui.button(egui::RichText::new(format!("{} Unlock", icons::LOCK_KEY_OPEN)).size(11.0)).clicked() {
+                send_command(command_tx, MultimeterCommand::SetRemoteMode(false));
+            }
+        });
         if ui.button(egui::RichText::new(format!("{} Reset Device", icons::ARROW_COUNTER_CLOCKWISE)).size(11.0)).clicked() {
             send_command(command_tx, MultimeterCommand::ResetDevice);
         }

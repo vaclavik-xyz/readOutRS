@@ -265,6 +265,14 @@ impl ScpiTransport for SimulatedScpiTransport {
                 return Ok(None);
             }
         }
+        // DB/DBM reference
+        if cmd.starts_with("CALC:DB:REF") || cmd.starts_with("CALC:DBM:REF") {
+            return Ok(None);
+        }
+        // Remote mode
+        if cmd == "SYST:REM" || cmd == "SYST:LOC" {
+            return Ok(None);
+        }
         // Device reset
         if cmd == "*RST" {
             self.mode = DEFAULT_MODE.into();

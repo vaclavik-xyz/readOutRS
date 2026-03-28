@@ -2,7 +2,7 @@ use crate::transport::{ScpiTransport, TransportError};
 use readout_core::alerts::{AlertConfiguration, AlertEvaluator};
 use readout_core::measurement_mode::{MeasurementMode, MeasurementModeParser};
 use readout_core::multimeter_parser::MultimeterParser;
-use readout_core::types::{DeviceId, DeviceMeasurement, MathFunction, MathStats, MultimeterRange, MultimeterRate, TempSensorType, TempUnit};
+use readout_core::types::{DbReference, DeviceId, DeviceMeasurement, MathFunction, MathStats, MultimeterRange, MultimeterRate, TempSensorType, TempUnit};
 use std::time::Instant;
 
 pub struct MultimeterDriver<T: ScpiTransport> {
@@ -258,6 +258,8 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
         let cmd = match func {
             MathFunction::Null => "CALC:FUNC NULL",
             MathFunction::Average => "CALC:FUNC AVERage",
+            MathFunction::Db => "CALC:FUNC DB",
+            MathFunction::Dbm => "CALC:FUNC DBM",
         };
         let _ = self.transport.query(cmd).await?;
         let _ = self.transport.query("CALC:STAT ON").await?;
@@ -282,6 +284,19 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
         } else {
             None
         }
+    }
+
+    pub async fn set_db_reference(&mut self, reference: DbReference) -> Result<(), TransportError> {
+        let DbReference::Ohms(ohms) = reference;
+        let _ = self.transport.query(&format!("CALC:DB:REF {}", ohms)).await?;
+        let _ = self.transport.query(&format!("CALC:DBM:REF {}", ohms)).await?;
+        Ok(())
+    }
+
+    pub async fn set_remote_mode(&mut self, remote: bool) -> Result<(), TransportError> {
+        let cmd = if remote { "SYST:REM" } else { "SYST:LOC" };
+        let _ = self.transport.query(cmd).await?;
+        Ok(())
     }
 
     pub async fn reset_device(&mut self) -> Result<(), TransportError> {

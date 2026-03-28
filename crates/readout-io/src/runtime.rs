@@ -410,6 +410,16 @@ impl Runtime {
                     math_stats: stats,
                 });
             }
+            MultimeterCommand::SetDbReference(reference) => {
+                if let Err(e) = driver.set_db_reference(reference).await {
+                    tracing::warn!("set_db_reference failed: {e}");
+                }
+            }
+            MultimeterCommand::SetRemoteMode(remote) => {
+                if let Err(e) = driver.set_remote_mode(remote).await {
+                    tracing::warn!("set_remote_mode failed: {e}");
+                }
+            }
             MultimeterCommand::ResetDevice => {
                 if let Err(e) = driver.reset_device().await {
                     tracing::warn!("reset_device failed: {e}");

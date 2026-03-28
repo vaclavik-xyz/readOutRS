@@ -56,7 +56,16 @@ pub enum TempUnit {
 pub enum MathFunction {
     Null,
     Average,
+    Db,
+    Dbm,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DbReference {
+    Ohms(u16), // 50, 75, 93, 110, 124, 125, 135, 150, 250, 300, 500, 600, 800, 900, 1000, 1200, 8000
+}
+
+pub const DB_REFERENCE_VALUES: &[u16] = &[50, 75, 93, 110, 124, 125, 135, 150, 250, 300, 500, 600, 800, 900, 1000, 1200, 8000];
 
 #[derive(Debug, Clone, Copy)]
 pub struct MathStats {
@@ -82,6 +91,8 @@ pub enum MultimeterCommand {
     StartMath(MathFunction),
     StopMath,
     QueryMathStats,
+    SetDbReference(DbReference),
+    SetRemoteMode(bool), // SYST:REM / SYST:LOC
     ResetDevice,
 }
 
