@@ -63,7 +63,9 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
             && self.alert_config.short_threshold > 0.0
         {
             let cmd = format!("CONT:THRE {}", self.alert_config.short_threshold);
-            let _ = self.transport.query(&cmd).await?;
+            if let Err(e) = self.transport.query(&cmd).await {
+                tracing::warn!("CONT:THRE configuration failed (non-fatal): {e}");
+            }
         }
 
         // Configure beeper based on config
@@ -205,6 +207,9 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
         };
         let _ = self.transport.query(cmd).await?;
         self.dual_display_active = enabled;
+        if enabled {
+            self.dual_display_mode = "FREQUENCY".into();
+        }
         Ok(())
     }
 

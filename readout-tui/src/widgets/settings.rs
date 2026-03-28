@@ -67,26 +67,40 @@ impl TuiSettingsScreen {
     }
 
     fn next_field_index(&self, from: usize) -> usize {
+        if self.fields.is_empty() {
+            return 0;
+        }
         let mut i = from;
         while i < self.fields.len() && self.is_separator(i) {
             i += 1;
         }
         let i = i.min(self.fields.len().saturating_sub(1));
-        // If we landed on a trailing separator, search backwards for a real field
         if self.is_separator(i) {
-            return self.prev_field_index(i);
+            // Iterative fallback — scan backwards without recursion
+            let mut j = i;
+            while j > 0 && self.is_separator(j) {
+                j -= 1;
+            }
+            return j;
         }
         i
     }
 
     fn prev_field_index(&self, from: usize) -> usize {
+        if self.fields.is_empty() {
+            return 0;
+        }
         let mut i = from;
         while i > 0 && self.is_separator(i) {
             i -= 1;
         }
-        // If we landed on a separator at 0, find next
         if self.is_separator(i) {
-            return self.next_field_index(i);
+            // Iterative fallback — scan forwards without recursion
+            let mut j = i;
+            while j < self.fields.len() && self.is_separator(j) {
+                j += 1;
+            }
+            return j.min(self.fields.len().saturating_sub(1));
         }
         i
     }
