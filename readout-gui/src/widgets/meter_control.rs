@@ -1,4 +1,5 @@
 use crate::theme;
+use egui_phosphor::regular as icons;
 use readout_core::dashboard_state::DashboardState;
 use readout_core::measurement_mode::MeasurementMode;
 use readout_core::types::{Command, MultimeterCommand, MultimeterRange, MultimeterRate};
@@ -13,12 +14,24 @@ impl MeterControlPanel {
     }
 }
 
+#[derive(Default)]
+pub enum MeterControlAction {
+    #[default]
+    None,
+    TogglePcBeep,
+    ToggleMeterBeep,
+}
+
 pub fn show(
     ctx: &egui::Context,
     state: &DashboardState,
     command_tx: Option<&tokio::sync::mpsc::Sender<Command>>,
     connected: bool,
-) {
+    pc_beep_enabled: bool,
+    meter_beep_enabled: bool,
+) -> MeterControlAction {
+    let mut action = MeterControlAction::None;
+
     egui::CentralPanel::default().show(ctx, |ui| {
         ui.set_enabled(connected && command_tx.is_some());
 
@@ -90,21 +103,22 @@ pub fn show(
             });
         });
 
-        ui.set_enabled(connected && command_tx.is_some() && !state.meter_auto_range);
-        ui.horizontal(|ui| {
-            if ui.button(egui::RichText::new("◀").size(14.0)).clicked() {
-                send_command(command_tx, MultimeterCommand::SetRange(MultimeterRange::Manual(1)));
-            }
-            ui.label(
-                egui::RichText::new(if state.meter_range_label.is_empty() { "---" } else { &state.meter_range_label })
-                    .size(14.0)
-                    .family(egui::FontFamily::Monospace),
-            );
-            if ui.button(egui::RichText::new("▶").size(14.0)).clicked() {
-                send_command(command_tx, MultimeterCommand::SetRange(MultimeterRange::Manual(7)));
-            }
+        let range_enabled = connected && command_tx.is_some() && !state.meter_auto_range;
+        ui.add_enabled_ui(range_enabled, |ui| {
+            ui.horizontal(|ui| {
+                if ui.button(egui::RichText::new("◀").size(14.0)).clicked() {
+                    send_command(command_tx, MultimeterCommand::SetRange(MultimeterRange::Manual(1)));
+                }
+                ui.label(
+                    egui::RichText::new(if state.meter_range_label.is_empty() { "---" } else { &state.meter_range_label })
+                        .size(14.0)
+                        .family(egui::FontFamily::Monospace),
+                );
+                if ui.button(egui::RichText::new("▶").size(14.0)).clicked() {
+                    send_command(command_tx, MultimeterCommand::SetRange(MultimeterRange::Manual(7)));
+                }
+            });
         });
-        ui.set_enabled(connected && command_tx.is_some());
 
         ui.add_space(4.0);
         ui.separator();
@@ -121,7 +135,35 @@ pub fn show(
                 }
             }
         });
+
+        ui.add_space(4.0);
+        ui.separator();
+
+        // Beep section — always enabled (independent of meter connection)
+        ui.add_enabled_ui(true, |ui| {
+            ui.label(egui::RichText::new("Beep").size(11.0).strong());
+            ui.add_space(2.0);
+            ui.horizontal(|ui| {
+                let pc_icon = if pc_beep_enabled { icons::SPEAKER_HIGH } else { icons::SPEAKER_SLASH };
+                if ui
+                    .selectable_label(pc_beep_enabled, egui::RichText::new(format!("{pc_icon} PC beep")).size(11.0))
+                    .clicked()
+                {
+                    action = MeterControlAction::TogglePcBeep;
+                }
+
+                let meter_icon = if meter_beep_enabled { icons::BELL_RINGING } else { icons::BELL_SLASH };
+                if ui
+                    .selectable_label(meter_beep_enabled, egui::RichText::new(format!("{meter_icon} Meter beep")).size(11.0))
+                    .clicked()
+                {
+                    action = MeterControlAction::ToggleMeterBeep;
+                }
+            });
+        });
     });
+
+    action
 }
 
 fn send_command(command_tx: Option<&tokio::sync::mpsc::Sender<Command>>, cmd: MultimeterCommand) {
