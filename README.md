@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="readout-gui/assets/icon_256x256.png" width="128" alt="readOut icon">
+</p>
+
 # readOutRS
 
 Real-time measurement dashboard for multimeters (SCPI) and USB-C power meters.
