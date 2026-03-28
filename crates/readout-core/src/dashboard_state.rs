@@ -46,6 +46,7 @@ pub struct DashboardState {
     pub meter_auto_impedance: bool,
     pub meter_math_function: Option<MathFunction>,
     pub meter_math_stats: Option<MathStats>,
+    pub update_available: Option<String>,
     start_time: Instant,
 }
 
@@ -98,6 +99,7 @@ impl DashboardState {
             meter_auto_impedance: false,
             meter_math_function: None,
             meter_math_stats: None,
+            update_available: None,
             start_time: Instant::now(),
         }
     }
@@ -109,37 +111,38 @@ impl DashboardState {
                     self.health.measurement_count += 1;
                     let elapsed = self.start_time.elapsed();
                     // Push to primary chart pipeline
-                    if let Some(pipeline) = self.chart_pipelines.get_mut(&device) {
-                        if let Some(v) = value.primary_value {
-                            pipeline.push(elapsed, v);
-                        }
+                    if let Some(pipeline) = self.chart_pipelines.get_mut(&device)
+                        && let Some(v) = value.primary_value
+                    {
+                        pipeline.push(elapsed, v);
                     }
                     // Push USB-C secondary metrics
                     if device == DeviceId::UsbC {
-                        if let Some(v) = value.primary_value {
-                            if let Some(p) = self.usbc_chart_pipelines.get_mut(&UsbCMetric::Voltage) {
-                                p.push(elapsed, v);
-                            }
+                        if let Some(v) = value.primary_value
+                            && let Some(p) = self.usbc_chart_pipelines.get_mut(&UsbCMetric::Voltage)
+                        {
+                            p.push(elapsed, v);
                         }
-                        if let Some(v) = value.secondary_value {
-                            if let Some(p) = self.usbc_chart_pipelines.get_mut(&UsbCMetric::Current) {
-                                p.push(elapsed, v);
-                            }
+                        if let Some(v) = value.secondary_value
+                            && let Some(p) = self.usbc_chart_pipelines.get_mut(&UsbCMetric::Current)
+                        {
+                            p.push(elapsed, v);
                         }
-                        if let Some(v) = value.power_watts {
-                            if let Some(p) = self.usbc_chart_pipelines.get_mut(&UsbCMetric::Power) {
-                                p.push(elapsed, v);
-                            }
+                        if let Some(v) = value.power_watts
+                            && let Some(p) = self.usbc_chart_pipelines.get_mut(&UsbCMetric::Power)
+                        {
+                            p.push(elapsed, v);
                         }
-                        if let Some(v) = value.energy_mwh {
-                            if let Some(p) = self.usbc_chart_pipelines.get_mut(&UsbCMetric::Energy) {
-                                p.push(elapsed, v);
-                            }
+                        if let Some(v) = value.energy_mwh
+                            && let Some(p) = self.usbc_chart_pipelines.get_mut(&UsbCMetric::Energy)
+                        {
+                            p.push(elapsed, v);
                         }
-                        if let Some(v) = value.energy_mah {
-                            if let Some(p) = self.usbc_chart_pipelines.get_mut(&UsbCMetric::EnergyMah) {
-                                p.push(elapsed, v);
-                            }
+                        if let Some(v) = value.energy_mah
+                            && let Some(p) =
+                                self.usbc_chart_pipelines.get_mut(&UsbCMetric::EnergyMah)
+                        {
+                            p.push(elapsed, v);
                         }
                     }
                     self.latest_measurement.insert(device, value);
@@ -186,7 +189,19 @@ impl DashboardState {
             RuntimeEvent::Log { level, message } => {
                 self.push_log(level, message);
             }
-            RuntimeEvent::MeterState { identity, mode, range_label, rate, auto_range, dual_display, null_enabled, dc_filter, auto_impedance, math_function, math_stats } => {
+            RuntimeEvent::MeterState {
+                identity,
+                mode,
+                range_label,
+                rate,
+                auto_range,
+                dual_display,
+                null_enabled,
+                dc_filter,
+                auto_impedance,
+                math_function,
+                math_stats,
+            } => {
                 if let Some(id) = identity {
                     self.meter_identity = Some(id);
                 }

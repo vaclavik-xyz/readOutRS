@@ -56,9 +56,7 @@ impl<T: DeviceTransport> UsbCDriver<T> {
             .map(|s| s.elapsed())
             .unwrap_or(Duration::ZERO);
 
-        let snap = self
-            .energy
-            .update(parsed.voltage, parsed.current, elapsed);
+        let snap = self.energy.update(parsed.voltage, parsed.current, elapsed);
 
         Ok(DeviceMeasurement {
             timestamp: Instant::now(),

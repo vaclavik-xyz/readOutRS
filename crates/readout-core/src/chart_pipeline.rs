@@ -127,9 +127,9 @@ impl ChartPipeline {
             let mut sum_v = 0.0f64;
             let count = (end - start) as f64;
 
-            for i in start..end {
-                sum_t += samples[i].0.as_secs_f64();
-                sum_v += samples[i].1;
+            for sample in &samples[start..end] {
+                sum_t += sample.0.as_secs_f64();
+                sum_v += sample.1;
             }
 
             result.push((Duration::from_secs_f64(sum_t / count), sum_v / count));

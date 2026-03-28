@@ -78,8 +78,17 @@ mod tests {
 
     #[test]
     fn parse_normalized_skips_uppercase() {
-        assert_eq!(MeasurementModeParser::parse_normalized("VOLT:DC"), MeasurementMode::DcVoltage);
-        assert_eq!(MeasurementModeParser::parse_normalized("CURR:AC"), MeasurementMode::AcCurrent);
-        assert_eq!(MeasurementModeParser::parse_normalized(""), MeasurementMode::Unknown);
+        assert_eq!(
+            MeasurementModeParser::parse_normalized("VOLT:DC"),
+            MeasurementMode::DcVoltage
+        );
+        assert_eq!(
+            MeasurementModeParser::parse_normalized("CURR:AC"),
+            MeasurementMode::AcCurrent
+        );
+        assert_eq!(
+            MeasurementModeParser::parse_normalized(""),
+            MeasurementMode::Unknown
+        );
     }
 }

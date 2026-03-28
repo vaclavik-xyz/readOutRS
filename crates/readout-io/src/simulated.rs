@@ -48,7 +48,7 @@ impl SimulatedScpiTransport {
             "VOLT:DC" => format!("{:.6E}", 12.0 + 0.25 * (t * 1.2).sin()),
             "CURR:DC" => format!("{:.6E}", 1.4 + 0.3 * (t * 1.8 + 0.5).sin()),
             "RES" | "FRES" => {
-                if self.sample_index % 160 == 0 && self.sample_index > 0 {
+                if self.sample_index.is_multiple_of(160) && self.sample_index > 0 {
                     return "OL".into();
                 }
                 format!("{:.6E}", 120.0 + 45.0 * (t * 0.8).sin())
@@ -70,11 +70,17 @@ impl SimulatedScpiTransport {
             "VOLT:DC" => &["50 mV", "500 mV", "5 V", "50 V", "500 V", "1000 V"],
             "VOLT:AC" => &["500 mV", "5 V", "50 V", "500 V", "750 V"],
             "CURR:DC" | "CURR:AC" => &["500 uA", "5 mA", "50 mA", "500 mA", "5 A", "10 A"],
-            "RES" | "FRES" => &["500 OHM", "5 kOHM", "50 kOHM", "500 kOHM", "5 MOHM", "50 MOHM"],
-            "CAP" => &["50 nF", "500 nF", "5 uF", "50 uF", "500 uF", "5 mF", "50 mF"],
+            "RES" | "FRES" => &[
+                "500 OHM", "5 kOHM", "50 kOHM", "500 kOHM", "5 MOHM", "50 MOHM",
+            ],
+            "CAP" => &[
+                "50 nF", "500 nF", "5 uF", "50 uF", "500 uF", "5 mF", "50 mF",
+            ],
             _ => &["---"],
         };
-        let idx = (self.range_index as usize).saturating_sub(1).min(labels.len() - 1);
+        let idx = (self.range_index as usize)
+            .saturating_sub(1)
+            .min(labels.len() - 1);
         labels[idx].into()
     }
 
@@ -180,7 +186,10 @@ impl ScpiTransport for SimulatedScpiTransport {
             return Ok(Some(if self.auto_range { "1" } else { "0" }.into()));
         }
         if cmd.starts_with("RANGE ") {
-            if let Some(n) = cmd.strip_prefix("RANGE ").and_then(|s| s.parse::<u8>().ok()) {
+            if let Some(n) = cmd
+                .strip_prefix("RANGE ")
+                .and_then(|s| s.parse::<u8>().ok())
+            {
                 self.range_index = n.clamp(1, 7);
                 self.auto_range = false;
             }
@@ -190,10 +199,10 @@ impl ScpiTransport for SimulatedScpiTransport {
             return Ok(Some(self.range_label()));
         }
         if cmd.starts_with("RATE ") {
-            if let Some(c) = cmd.strip_prefix("RATE ").and_then(|s| s.chars().next()) {
-                if matches!(c, 'F' | 'M' | 'S') {
-                    self.rate = c;
-                }
+            if let Some(c) = cmd.strip_prefix("RATE ").and_then(|s| s.chars().next())
+                && matches!(c, 'F' | 'M' | 'S')
+            {
+                self.rate = c;
             }
             return Ok(None);
         }
@@ -261,7 +270,13 @@ impl ScpiTransport for SimulatedScpiTransport {
                 if self.calc_active {
                     let t = self.sample_index as f64 / self.sample_rate_hz as f64;
                     let avg = 12.0 + 0.25 * (t * 1.2).sin();
-                    return Ok(Some(format!("{:.6},{:.6},{:.6},{}", avg - 0.5, avg + 0.3, avg, self.sample_index)));
+                    return Ok(Some(format!(
+                        "{:.6},{:.6},{:.6},{}",
+                        avg - 0.5,
+                        avg + 0.3,
+                        avg,
+                        self.sample_index
+                    )));
                 }
                 return Ok(None);
             }

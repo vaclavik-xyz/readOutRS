@@ -63,10 +63,7 @@ fn fixture_driven_parsing() {
             "fixture {i}: value mismatch for response={:?}",
             f.response
         );
-        assert_eq!(
-            result.unit, f.expected.unit,
-            "fixture {i}: unit mismatch"
-        );
+        assert_eq!(result.unit, f.expected.unit, "fixture {i}: unit mismatch");
         assert_eq!(
             result.is_overload, f.expected.is_overload,
             "fixture {i}: isOverload mismatch"

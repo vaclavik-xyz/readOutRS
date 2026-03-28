@@ -17,7 +17,9 @@ impl UsbCFrameParser {
     }
 
     pub fn parse(raw_frame: &str) -> Option<UsbCFrameMeasurement> {
-        let frame = raw_frame.trim().trim_matches(|c: char| !c.is_ascii_hexdigit());
+        let frame = raw_frame
+            .trim()
+            .trim_matches(|c: char| !c.is_ascii_hexdigit());
         if !Self::is_valid_frame(frame) {
             return None;
         }

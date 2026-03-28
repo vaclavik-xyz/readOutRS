@@ -2,7 +2,10 @@ use crate::transport::{ScpiTransport, TransportError};
 use readout_core::alerts::{AlertConfiguration, AlertEvaluator};
 use readout_core::measurement_mode::{MeasurementMode, MeasurementModeParser};
 use readout_core::multimeter_parser::MultimeterParser;
-use readout_core::types::{DbReference, DeviceId, DeviceMeasurement, MathFunction, MathStats, MultimeterRange, MultimeterRate, TempSensorType, TempUnit};
+use readout_core::types::{
+    DbReference, DeviceId, DeviceMeasurement, MathFunction, MathStats, MultimeterRange,
+    MultimeterRate, TempSensorType, TempUnit,
+};
 use std::time::Instant;
 
 pub struct MultimeterDriver<T: ScpiTransport> {
@@ -12,6 +15,7 @@ pub struct MultimeterDriver<T: ScpiTransport> {
     alarm_state: readout_core::types::AlarmState,
     meter_beep_enabled: bool,
     dual_display_active: bool,
+    dual_display_mode: String,
 }
 
 impl<T: ScpiTransport> MultimeterDriver<T> {
@@ -23,6 +27,7 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
             alarm_state: readout_core::types::AlarmState::None,
             meter_beep_enabled: false,
             dual_display_active: false,
+            dual_display_mode: "FREQ".into(),
         }
     }
 
@@ -54,11 +59,11 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
         }
 
         // Set continuity threshold if configured
-        if MeasurementModeParser::parse(Some(&self.current_mode)) == MeasurementMode::Continuity {
-            if self.alert_config.short_threshold > 0.0 {
-                let cmd = format!("CONT:THRE {}", self.alert_config.short_threshold);
-                let _ = self.transport.query(&cmd).await;
-            }
+        if MeasurementModeParser::parse(Some(&self.current_mode)) == MeasurementMode::Continuity
+            && self.alert_config.short_threshold > 0.0
+        {
+            let cmd = format!("CONT:THRE {}", self.alert_config.short_threshold);
+            let _ = self.transport.query(&cmd).await?;
         }
 
         // Configure beeper based on config
@@ -68,6 +73,9 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
             "SYST:BEEP:STAT OFF"
         };
         let _ = self.transport.query(beep_cmd).await;
+
+        // Sync dual display state from device
+        self.dual_display_active = self.query_dual_display().await;
 
         Ok(())
     }
@@ -96,7 +104,7 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
         let (secondary_value, secondary_unit) = if self.dual_display_active {
             match self.transport.query("MEAS2?").await {
                 Ok(Some(resp)) => {
-                    match MultimeterParser::parse(Some(&resp), "FREQ") {
+                    match MultimeterParser::parse(Some(&resp), &self.dual_display_mode) {
                         Some(p) => (p.value, Some(p.unit)),
                         None => (None, None),
                     }
@@ -126,14 +134,19 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
         };
 
         // Evaluate alarm state with hysteresis
-        self.alarm_state = AlertEvaluator::evaluate(&mut measurement, &self.alert_config, self.alarm_state);
+        self.alarm_state =
+            AlertEvaluator::evaluate(&mut measurement, &self.alert_config, self.alarm_state);
         measurement.alarm_state = self.alarm_state;
 
         Ok(measurement)
     }
 
     pub async fn set_beeper(&mut self, enabled: bool) {
-        let cmd = if enabled { "SYST:BEEP:STAT ON" } else { "SYST:BEEP:STAT OFF" };
+        let cmd = if enabled {
+            "SYST:BEEP:STAT ON"
+        } else {
+            "SYST:BEEP:STAT OFF"
+        };
         let _ = self.transport.query(cmd).await;
         self.meter_beep_enabled = enabled;
     }
@@ -185,17 +198,29 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
     }
 
     pub async fn set_dual_display(&mut self, enabled: bool) -> Result<(), TransportError> {
-        let cmd = if enabled { "FUNC2 \"FREQuency\"" } else { "FUNC2 \"NONe\"" };
+        let cmd = if enabled {
+            "FUNC2 \"FREQuency\""
+        } else {
+            "FUNC2 \"NONe\""
+        };
         let _ = self.transport.query(cmd).await?;
         self.dual_display_active = enabled;
         Ok(())
     }
 
     pub async fn query_dual_display(&mut self) -> bool {
-        self.transport.query("FUNC2?").await
-            .ok().flatten()
-            .map(|s| !s.trim().to_uppercase().contains("NON"))
-            .unwrap_or(false)
+        match self.transport.query("FUNC2?").await.ok().flatten() {
+            Some(s) => {
+                let trimmed = s.trim().trim_matches('"').to_uppercase();
+                if trimmed.contains("NON") {
+                    false
+                } else {
+                    self.dual_display_mode = trimmed;
+                    true
+                }
+            }
+            None => false,
+        }
     }
 
     pub async fn set_null(&mut self, enabled: bool) -> Result<(), TransportError> {
@@ -209,8 +234,12 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
     pub async fn query_null(&mut self) -> bool {
         if let Some(p) = self.sense_prefix() {
             let cmd = format!("{p}:NULL?");
-            return self.transport.query(&cmd).await
-                .ok().flatten()
+            return self
+                .transport
+                .query(&cmd)
+                .await
+                .ok()
+                .flatten()
                 .map(|s| s.trim() == "1" || s.trim().to_uppercase() == "ON")
                 .unwrap_or(false);
         }
@@ -235,7 +264,10 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
         Ok(())
     }
 
-    pub async fn set_temp_sensor_type(&mut self, sensor: TempSensorType) -> Result<(), TransportError> {
+    pub async fn set_temp_sensor_type(
+        &mut self,
+        sensor: TempSensorType,
+    ) -> Result<(), TransportError> {
         let cmd = match sensor {
             TempSensorType::Kits90 => "TEMP:RTD:TYPE KITS90",
             TempSensorType::Pt100 => "TEMP:RTD:TYPE PT100",
@@ -288,8 +320,14 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
 
     pub async fn set_db_reference(&mut self, reference: DbReference) -> Result<(), TransportError> {
         let DbReference::Ohms(ohms) = reference;
-        let _ = self.transport.query(&format!("CALC:DB:REF {}", ohms)).await?;
-        let _ = self.transport.query(&format!("CALC:DBM:REF {}", ohms)).await?;
+        let _ = self
+            .transport
+            .query(&format!("CALC:DB:REF {}", ohms))
+            .await?;
+        let _ = self
+            .transport
+            .query(&format!("CALC:DBM:REF {}", ohms))
+            .await?;
         Ok(())
     }
 
@@ -301,6 +339,8 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
 
     pub async fn reset_device(&mut self) -> Result<(), TransportError> {
         let _ = self.transport.query("*RST").await?;
+        self.dual_display_active = false;
+        self.dual_display_mode = "FREQ".into();
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         Ok(())
     }
@@ -327,16 +367,29 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
             }
             _ => MeasurementModeParser::parse(Some(&self.current_mode)),
         };
-        let range_label = self.transport.query("RANGE?").await
-            .ok().flatten()
+        let range_label = self
+            .transport
+            .query("RANGE?")
+            .await
+            .ok()
+            .flatten()
             .unwrap_or_default()
-            .trim().to_string();
-        let auto_range = self.transport.query("AUTO?").await
-            .ok().flatten()
+            .trim()
+            .to_string();
+        let auto_range = self
+            .transport
+            .query("AUTO?")
+            .await
+            .ok()
+            .flatten()
             .map(|s| s.trim() == "1")
             .unwrap_or(true);
-        let rate = self.transport.query("RATE?").await
-            .ok().flatten()
+        let rate = self
+            .transport
+            .query("RATE?")
+            .await
+            .ok()
+            .flatten()
             .map(|s| parse_rate(&s))
             .unwrap_or(MultimeterRate::Medium);
         let dual_display = self.query_dual_display().await;
@@ -344,7 +397,10 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
         let null_enabled = self.query_null().await;
 
         MeterStateSnapshot {
-            mode, range_label, rate, auto_range,
+            mode,
+            range_label,
+            rate,
+            auto_range,
             dual_display,
             null_enabled,
             dc_filter: false,

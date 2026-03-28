@@ -1,7 +1,7 @@
 use readout_core::types::DeviceMeasurement;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
-use tokio::time::{interval, Duration};
+use tokio::time::{Duration, interval};
 
 pub struct ObsOutputWriter {
     path: PathBuf,
@@ -65,9 +65,7 @@ impl ObsOutputWriter {
         }
         // Final write on shutdown
         if let Some(text) = latest {
-            let _ = tokio::task::spawn_blocking(move || {
-                std::fs::write(&path, &text)
-            }).await;
+            let _ = tokio::task::spawn_blocking(move || std::fs::write(&path, &text)).await;
         }
     }
 }

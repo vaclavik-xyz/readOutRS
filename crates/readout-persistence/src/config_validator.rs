@@ -33,9 +33,7 @@ impl ConfigValidator {
             }
         }
 
-        if config.multimeter_csv_logging_enabled
-            && config.multimeter_csv_log_file_path.is_empty()
-        {
+        if config.multimeter_csv_logging_enabled && config.multimeter_csv_log_file_path.is_empty() {
             issues.push(ValidationIssue {
                 severity: IssueSeverity::Warning,
                 message: "Multimeter CSV logging enabled but no file path set".into(),

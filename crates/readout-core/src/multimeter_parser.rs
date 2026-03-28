@@ -173,10 +173,6 @@ impl MultimeterParser {
             }
         }
 
-        if end > 0 {
-            Some(&text[..end])
-        } else {
-            None
-        }
+        if end > 0 { Some(&text[..end]) } else { None }
     }
 }

@@ -39,12 +39,12 @@ impl EnergyAccumulator {
     pub fn update(&mut self, voltage: f64, current: f64, timestamp: Duration) -> EnergySnapshot {
         let power = (voltage * current).abs();
 
-        if let Some(prev) = self.last_timestamp {
-            if let Some(delta) = timestamp.checked_sub(prev) {
-                let delta_hours = delta.as_secs_f64() / 3600.0;
-                self.energy_mwh += power * 1000.0 * delta_hours;
-                self.energy_mah += current.abs() * 1000.0 * delta_hours;
-            }
+        if let Some(prev) = self.last_timestamp
+            && let Some(delta) = timestamp.checked_sub(prev)
+        {
+            let delta_hours = delta.as_secs_f64() / 3600.0;
+            self.energy_mwh += power * 1000.0 * delta_hours;
+            self.energy_mah += current.abs() * 1000.0 * delta_hours;
         }
 
         self.last_timestamp = Some(timestamp);

@@ -76,18 +76,28 @@ impl DeviceSession {
             }
 
             // --- Connecting ---
-            if !send_event(&event_tx, DeviceSessionEvent::StateChanged(if attempt == 0 {
-                SessionState::Connecting
-            } else {
-                SessionState::Reconnecting { attempt }
-            })).await {
+            if !send_event(
+                &event_tx,
+                DeviceSessionEvent::StateChanged(if attempt == 0 {
+                    SessionState::Connecting
+                } else {
+                    SessionState::Reconnecting { attempt }
+                }),
+            )
+            .await
+            {
                 return; // channel closed
             }
 
             match transport.open().await {
                 Ok(()) => {
                     attempt = 0;
-                    if !send_event(&event_tx, DeviceSessionEvent::StateChanged(SessionState::Connected)).await {
+                    if !send_event(
+                        &event_tx,
+                        DeviceSessionEvent::StateChanged(SessionState::Connected),
+                    )
+                    .await
+                    {
                         transport.close().await;
                         return;
                     }
@@ -125,7 +135,12 @@ impl DeviceSession {
                     }
                 }
                 Err(err) => {
-                    if !send_event(&event_tx, DeviceSessionEvent::TransportError(err.to_string())).await {
+                    if !send_event(
+                        &event_tx,
+                        DeviceSessionEvent::TransportError(err.to_string()),
+                    )
+                    .await
+                    {
                         return;
                     }
                 }
@@ -133,19 +148,26 @@ impl DeviceSession {
 
             // --- Retry logic ---
             if !policy.enabled {
-                let _ = send_event(&event_tx, DeviceSessionEvent::StateChanged(SessionState::Disconnected)).await;
+                let _ = send_event(
+                    &event_tx,
+                    DeviceSessionEvent::StateChanged(SessionState::Disconnected),
+                )
+                .await;
                 break;
             }
 
             attempt += 1;
             let delay = policy.delay_for_attempt(attempt);
 
-            if !send_event(&event_tx, DeviceSessionEvent::StateChanged(
-                SessionState::WaitingRetry {
+            if !send_event(
+                &event_tx,
+                DeviceSessionEvent::StateChanged(SessionState::WaitingRetry {
                     attempt,
                     delay_secs: delay,
-                },
-            )).await {
+                }),
+            )
+            .await
+            {
                 return;
             }
 
@@ -160,6 +182,10 @@ impl DeviceSession {
             }
         }
 
-        let _ = send_event(&event_tx, DeviceSessionEvent::StateChanged(SessionState::Disconnected)).await;
+        let _ = send_event(
+            &event_tx,
+            DeviceSessionEvent::StateChanged(SessionState::Disconnected),
+        )
+        .await;
     }
 }

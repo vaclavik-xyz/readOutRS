@@ -43,7 +43,10 @@ async fn runtime_simulator_produces_measurements_and_shuts_down() {
     })
     .await;
 
-    assert!(collect_timeout.is_ok(), "timed out waiting for measurements");
+    assert!(
+        collect_timeout.is_ok(),
+        "timed out waiting for measurements"
+    );
     assert!(mm_count >= 5, "multimeter: {mm_count}");
     assert!(usbc_count >= 5, "usbc: {usbc_count}");
 

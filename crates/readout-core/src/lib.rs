@@ -5,5 +5,6 @@ pub mod energy_accumulator;
 pub mod measurement_mode;
 pub mod multimeter_parser;
 pub mod types;
+pub mod update_checker;
 pub mod usbc_frame_parser;
 pub mod value_format;

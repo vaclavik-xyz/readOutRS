@@ -26,7 +26,9 @@ fn csv_enabled_without_path_is_warning() {
     config.multimeter_csv_logging_enabled = true;
     config.multimeter_csv_log_file_path = String::new();
     let issues = ConfigValidator::validate(&config);
-    assert!(issues
-        .iter()
-        .any(|i| i.severity == IssueSeverity::Warning && i.message.contains("CSV")));
+    assert!(
+        issues
+            .iter()
+            .any(|i| i.severity == IssueSeverity::Warning && i.message.contains("CSV"))
+    );
 }

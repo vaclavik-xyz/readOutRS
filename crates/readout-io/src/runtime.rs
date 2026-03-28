@@ -1,7 +1,7 @@
 use readout_core::types::{Command, DeviceId, RuntimeEvent};
 use readout_persistence::config::AppConfiguration;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 
@@ -84,7 +84,19 @@ impl Runtime {
 
             let auto_reconnect = self.config.multimeter_auto_reconnect;
             Some(tokio::spawn(async move {
-                Self::run_multimeter(use_simulator, port, sample_rate, meter_beep, meter_beep_flag, alert_config, event_tx, cancel, mm_cmd_rx, auto_reconnect).await;
+                Self::run_multimeter(
+                    use_simulator,
+                    port,
+                    sample_rate,
+                    meter_beep,
+                    meter_beep_flag,
+                    alert_config,
+                    event_tx,
+                    cancel,
+                    mm_cmd_rx,
+                    auto_reconnect,
+                )
+                .await;
             }))
         } else {
             None
@@ -99,7 +111,16 @@ impl Runtime {
             let auto_reconnect = self.config.usbc_auto_reconnect;
 
             Some(tokio::spawn(async move {
-                Self::run_usbc(use_simulator, port, sample_rate, event_tx, cancel, usbc_cmd_rx, auto_reconnect).await;
+                Self::run_usbc(
+                    use_simulator,
+                    port,
+                    sample_rate,
+                    event_tx,
+                    cancel,
+                    usbc_cmd_rx,
+                    auto_reconnect,
+                )
+                .await;
             }))
         } else {
             None
@@ -140,18 +161,19 @@ impl Runtime {
         // Graceful shutdown: cancel device tasks and join them
         device_cancel.cancel();
 
-        if let Some(h) = mm_handle {
-            if let Err(e) = h.await {
-                tracing::error!("Multimeter task failed: {e}");
-            }
+        if let Some(h) = mm_handle
+            && let Err(e) = h.await
+        {
+            tracing::error!("Multimeter task failed: {e}");
         }
-        if let Some(h) = usbc_handle {
-            if let Err(e) = h.await {
-                tracing::error!("USB-C task failed: {e}");
-            }
+        if let Some(h) = usbc_handle
+            && let Err(e) = h.await
+        {
+            tracing::error!("USB-C task failed: {e}");
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn run_multimeter(
         use_simulator: bool,
         port: String,
@@ -170,13 +192,29 @@ impl Runtime {
             let mut driver = MultimeterDriver::new(transport);
             driver.set_meter_beep(meter_beep);
             driver.set_alert_config(alert_config);
-            Self::multimeter_loop(&mut driver, meter_beep_flag, event_tx, cancel, &mut cmd_rx, auto_reconnect).await;
+            Self::multimeter_loop(
+                &mut driver,
+                meter_beep_flag,
+                event_tx,
+                cancel,
+                &mut cmd_rx,
+                auto_reconnect,
+            )
+            .await;
         } else {
             let transport = SerialTransport::new(port, MULTIMETER_BAUD_RATE);
             let mut driver = MultimeterDriver::new(transport);
             driver.set_meter_beep(meter_beep);
             driver.set_alert_config(alert_config);
-            Self::multimeter_loop(&mut driver, meter_beep_flag, event_tx, cancel, &mut cmd_rx, auto_reconnect).await;
+            Self::multimeter_loop(
+                &mut driver,
+                meter_beep_flag,
+                event_tx,
+                cancel,
+                &mut cmd_rx,
+                auto_reconnect,
+            )
+            .await;
         }
     }
 
@@ -270,7 +308,9 @@ impl Runtime {
                                 message: e.to_string(),
                             });
                             if consecutive_errors >= 5 {
-                                tracing::warn!("Multimeter: too many consecutive errors, will reconnect");
+                                tracing::warn!(
+                                    "Multimeter: too many consecutive errors, will reconnect"
+                                );
                                 driver.close().await;
                                 prev_alarm = readout_core::types::AlarmState::None;
                                 break;
@@ -516,7 +556,9 @@ impl Runtime {
                                 message: e.to_string(),
                             });
                             if consecutive_errors >= 5 {
-                                tracing::warn!("USB-C: too many consecutive errors, will reconnect");
+                                tracing::warn!(
+                                    "USB-C: too many consecutive errors, will reconnect"
+                                );
                                 driver.close().await;
                                 break;
                             }
@@ -597,8 +639,8 @@ async fn emit_meter_state<T: ScpiTransport>(
 mod tests {
     use super::*;
     use crate::transport::TransportError;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct CancellationUnsafeUsbTransport {
         open_count: Arc<AtomicUsize>,
@@ -659,7 +701,9 @@ mod tests {
         });
 
         let mut saw_connected = false;
-        while let Ok(event) = tokio::time::timeout(std::time::Duration::from_secs(1), event_rx.recv()).await {
+        while let Ok(event) =
+            tokio::time::timeout(std::time::Duration::from_secs(1), event_rx.recv()).await
+        {
             match event.expect("event channel closed unexpectedly") {
                 RuntimeEvent::ConnectionChanged {
                     device: DeviceId::UsbC,
@@ -686,8 +730,11 @@ mod tests {
         let mut saw_reset_log = false;
         let mut saw_reconnect = false;
         while tokio::time::Instant::now() < deadline {
-            match tokio::time::timeout(std::time::Duration::from_millis(50), event_rx.recv()).await {
-                Ok(Ok(RuntimeEvent::Log { message, .. })) if message == "USB-C energy counter reset" => {
+            match tokio::time::timeout(std::time::Duration::from_millis(50), event_rx.recv()).await
+            {
+                Ok(Ok(RuntimeEvent::Log { message, .. }))
+                    if message == "USB-C energy counter reset" =>
+                {
                     saw_reset_log = true;
                 }
                 Ok(Ok(RuntimeEvent::ConnectionChanged {

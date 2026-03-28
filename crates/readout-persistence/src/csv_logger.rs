@@ -71,10 +71,10 @@ impl CsvLogger {
 
     pub async fn flush(&self) {
         let (done_tx, done_rx) = oneshot::channel();
-        if let Some(ref tx) = self.tx {
-            if tx.send(CsvMessage::Flush(done_tx)).await.is_ok() {
-                let _ = done_rx.await;
-            }
+        if let Some(ref tx) = self.tx
+            && tx.send(CsvMessage::Flush(done_tx)).await.is_ok()
+        {
+            let _ = done_rx.await;
         }
     }
 

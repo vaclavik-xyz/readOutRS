@@ -197,6 +197,10 @@ pub struct AppConfiguration {
     // Window behaviour
     #[serde(default = "default_true")]
     pub always_on_top: bool,
+
+    // Updates
+    #[serde(default = "default_true")]
+    pub check_for_updates: bool,
 }
 
 // --- Default value helpers ---
@@ -279,6 +283,7 @@ impl Default for AppConfiguration {
             show_mm: true,
             show_usbc: true,
             always_on_top: true,
+            check_for_updates: true,
         }
     }
 }
@@ -394,6 +399,8 @@ impl<'de> Deserialize<'de> for AppConfiguration {
             show_usbc: bool,
             #[serde(default = "default_true")]
             always_on_top: bool,
+            #[serde(default = "default_true")]
+            check_for_updates: bool,
         }
 
         let inner = Inner::deserialize(deserializer)?;
@@ -439,6 +446,7 @@ impl<'de> Deserialize<'de> for AppConfiguration {
             show_mm: inner.show_mm,
             show_usbc: inner.show_usbc,
             always_on_top: inner.always_on_top,
+            check_for_updates: inner.check_for_updates,
         };
         config.clamp_values();
         Ok(config)

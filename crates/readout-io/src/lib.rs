@@ -1,3 +1,5 @@
+#![allow(async_fn_in_trait)]
+
 pub mod device_session;
 pub mod multimeter_driver;
 pub mod port_discovery;

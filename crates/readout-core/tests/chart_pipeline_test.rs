@@ -72,10 +72,7 @@ fn downsampling_preserves_peaks() {
     }
     let points = pipeline.query(Duration::from_secs(30), 20);
     // The spike should be preserved
-    let max_val = points
-        .iter()
-        .map(|p| p.1)
-        .fold(f64::NEG_INFINITY, f64::max);
+    let max_val = points.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
     assert!((max_val - 100.0).abs() < 0.001);
 }
 

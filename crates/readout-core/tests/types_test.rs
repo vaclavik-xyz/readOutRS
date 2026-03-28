@@ -108,10 +108,7 @@ fn measurement_mode_parse_unknown() {
         MeasurementModeParser::parse(Some("GARBAGE")),
         MeasurementMode::Unknown
     );
-    assert_eq!(
-        MeasurementModeParser::parse(None),
-        MeasurementMode::Unknown
-    );
+    assert_eq!(MeasurementModeParser::parse(None), MeasurementMode::Unknown);
     assert_eq!(
         MeasurementModeParser::parse(Some("")),
         MeasurementMode::Unknown
