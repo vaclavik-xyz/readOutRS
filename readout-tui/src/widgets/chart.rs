@@ -1,7 +1,6 @@
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::symbols::Marker;
-use ratatui::text::Line as TextLine;
 use ratatui::widgets::canvas::{Canvas, Line as CanvasLine};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
@@ -121,15 +120,6 @@ fn render_canvas_chart(
 
     // Layout: [y-axis labels (6 chars)] [canvas]
     let chunks = Layout::horizontal([Constraint::Length(7), Constraint::Min(10)]).split(area);
-
-    // Y-axis labels
-    let y_labels = Paragraph::new(vec![
-        TextLine::from(format!("{:>6.2}", y[1])),
-        // Fill middle with empty lines
-        TextLine::from(""),
-        TextLine::from(format!("{:>6.2}", y[0])),
-    ])
-    .style(Style::default().fg(Color::DarkGray));
 
     // Position labels at top and bottom of chart area
     let label_area = chunks[0];
