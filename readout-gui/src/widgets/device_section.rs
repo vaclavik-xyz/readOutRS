@@ -168,20 +168,25 @@ pub fn show(
                         });
                     }
 
-                    // USB-C metric selector
-                    ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 3.0;
-                        for (metric, label) in USBC_METRICS {
-                            let selected = usbc_metric == *metric;
-                            if ui
-                                .selectable_label(selected, egui::RichText::new(*label).size(10.0))
-                                .clicked()
-                            {
-                                action = SectionAction::SetUsbcMetric(*metric);
+                    // USB-C metric selector (only when chart visible)
+                    if *chart_visible {
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 3.0;
+                            for (metric, label) in USBC_METRICS {
+                                let selected = usbc_metric == *metric;
+                                if ui
+                                    .selectable_label(
+                                        selected,
+                                        egui::RichText::new(*label).size(10.0),
+                                    )
+                                    .clicked()
+                                {
+                                    action = SectionAction::SetUsbcMetric(*metric);
+                                }
                             }
-                        }
-                    });
+                        });
+                    }
                 }
 
                 show_alarm_badge(ui, alarm);
