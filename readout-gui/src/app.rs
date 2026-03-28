@@ -550,9 +550,9 @@ impl eframe::App for ReadOutApp {
 
         // Dynamic window height — adjust to content, keep user's width
         if content_height > 0.0 {
-            let current_width = ctx.input(|i| i.screen_rect().width());
+            let current_width = ctx.input(|i| i.viewport_rect().width());
             let target_height = content_height.max(100.0);
-            let current_height = ctx.input(|i| i.screen_rect().height());
+            let current_height = ctx.input(|i| i.viewport_rect().height());
             if (current_height - target_height).abs() > 2.0 {
                 ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(
                     egui::vec2(current_width, target_height),
