@@ -274,7 +274,7 @@ pub fn show(
                                 .family(egui::FontFamily::Monospace)
                                 .color(sec),
                         );
-                        let remaining = ui.available_height() - 24.0;
+                        let remaining = (ui.available_height() - 24.0).max(0.0);
                         ui.add_space(remaining / 2.0);
                         ui.label(
                             egui::RichText::new(format!("{y_avg:.3}"))
@@ -282,7 +282,7 @@ pub fn show(
                                 .family(egui::FontFamily::Monospace)
                                 .color(sec),
                         );
-                        ui.add_space(ui.available_height() - 12.0);
+                        ui.add_space((ui.available_height() - 12.0).max(0.0));
                         ui.label(
                             egui::RichText::new(format!("{y_min:.3}"))
                                 .size(9.0)
@@ -297,20 +297,6 @@ pub fn show(
     (action, toolbar_action)
 }
 
-fn format_compact(v: f64) -> String {
-    let abs = v.abs();
-    if abs >= 100.0 {
-        format!("{:.0}", v)
-    } else if abs >= 10.0 {
-        format!("{:.1}", v)
-    } else if abs >= 1.0 {
-        format!("{:.2}", v)
-    } else if abs >= 0.1 {
-        format!("{:.3}", v)
-    } else {
-        format!("{:.4}", v)
-    }
-}
 
 fn connection_led(ui: &mut egui::Ui, state: &ConnectionState) {
     let color = match state {
