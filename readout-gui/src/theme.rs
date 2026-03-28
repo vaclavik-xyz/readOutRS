@@ -57,6 +57,30 @@ pub fn apply_theme(ctx: &egui::Context, theme: DashboardTheme) {
 }
 
 fn is_system_dark_mode() -> bool {
+    use std::sync::Mutex;
+    use std::time::Instant;
+
+    static CACHE: Mutex<Option<(bool, Instant)>> = Mutex::new(None);
+    const TTL: std::time::Duration = std::time::Duration::from_secs(5);
+
+    if let Ok(guard) = CACHE.lock() {
+        if let Some((value, ts)) = *guard {
+            if ts.elapsed() < TTL {
+                return value;
+            }
+        }
+    }
+
+    let result = query_system_dark_mode();
+
+    if let Ok(mut guard) = CACHE.lock() {
+        *guard = Some((result, Instant::now()));
+    }
+
+    result
+}
+
+fn query_system_dark_mode() -> bool {
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("defaults")

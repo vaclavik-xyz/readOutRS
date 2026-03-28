@@ -35,7 +35,7 @@ impl SimulatedScpiTransport {
         match self.mode.as_str() {
             "VOLT:DC" => format!("{:.6E}", 12.0 + 0.25 * (t * 1.2).sin()),
             "CURR:DC" => format!("{:.6E}", 1.4 + 0.3 * (t * 1.8 + 0.5).sin()),
-            "RES" => {
+            "RES" | "FRES" => {
                 if self.sample_index % 160 == 0 && self.sample_index > 0 {
                     return "OL".into();
                 }
