@@ -107,10 +107,18 @@ pub fn show_title_bar(ui: &mut egui::Ui, state: &TitleBarState) -> ToolbarAction
 
             if ui
                 .button(egui::RichText::new(icons::GEAR).size(14.0))
-                .on_hover_text("Settings")
+                .on_hover_text("Settings (Cmd+,)")
                 .clicked()
             {
                 action = ToolbarAction::OpenSettings;
+            }
+
+            if ui
+                .button(egui::RichText::new(icons::TRASH).size(14.0))
+                .on_hover_text("Clear Charts (Cmd+K)")
+                .clicked()
+            {
+                action = ToolbarAction::ClearCharts;
             }
 
             // Time range dropdown
