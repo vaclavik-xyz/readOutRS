@@ -2,7 +2,7 @@ use crate::theme;
 use egui_phosphor::regular as icons;
 use readout_core::dashboard_state::DashboardState;
 use readout_core::measurement_mode::MeasurementMode;
-use readout_core::types::{Command, MultimeterCommand, MultimeterRange, MultimeterRate};
+use readout_core::types::{Command, MathFunction, MultimeterCommand, MultimeterRange, MultimeterRate, TempSensorType, TempUnit};
 
 pub struct MeterControlPanel {
     pub open: bool,
@@ -88,6 +88,19 @@ pub fn show(
             }
         });
 
+        let row3: &[(MeasurementMode, &str)] = &[
+            (MeasurementMode::Temperature, "Temp"),
+            (MeasurementMode::Period, "Per"),
+        ];
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 3.0;
+            for (mode, label) in row3 {
+                if ui.selectable_label(current_mode == *mode, egui::RichText::new(*label).size(11.0)).clicked() {
+                    send_command(command_tx, MultimeterCommand::SetMode(*mode));
+                }
+            }
+        });
+
         ui.add_space(4.0);
         ui.separator();
 
@@ -135,6 +148,118 @@ pub fn show(
                 }
             }
         });
+
+        ui.add_space(4.0);
+        ui.separator();
+
+        // Dual Display
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Dual Display").size(11.0).strong());
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let mut dual = state.meter_dual_display;
+                if ui.checkbox(&mut dual, "Freq").changed() {
+                    send_command(command_tx, MultimeterCommand::SetDualDisplay(dual));
+                }
+            });
+        });
+
+        // NULL/REL
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Relative").size(11.0).strong());
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let mut null = state.meter_null_enabled;
+                if ui.checkbox(&mut null, "NULL").changed() {
+                    send_command(command_tx, MultimeterCommand::SetNull(null));
+                }
+            });
+        });
+
+        // DC Voltage options
+        if state.meter_mode == MeasurementMode::DcVoltage {
+            ui.add_space(4.0);
+            ui.separator();
+            ui.label(egui::RichText::new("DC Voltage").size(11.0).strong());
+            ui.horizontal(|ui| {
+                let mut filt = state.meter_dc_filter;
+                if ui.checkbox(&mut filt, "DC Filter").changed() {
+                    send_command(command_tx, MultimeterCommand::SetDcFilter(filt));
+                }
+                let mut imp = state.meter_auto_impedance;
+                if ui.checkbox(&mut imp, "Auto Z").changed() {
+                    send_command(command_tx, MultimeterCommand::SetAutoImpedance(imp));
+                }
+            });
+        }
+
+        // Temperature config
+        if state.meter_mode == MeasurementMode::Temperature {
+            ui.add_space(4.0);
+            ui.separator();
+            ui.label(egui::RichText::new("Temperature").size(11.0).strong());
+            ui.horizontal(|ui| {
+                ui.label("Sensor:");
+                if ui.selectable_label(false, "KITS90").clicked() {
+                    send_command(command_tx, MultimeterCommand::SetTempSensorType(TempSensorType::Kits90));
+                }
+                if ui.selectable_label(false, "PT100").clicked() {
+                    send_command(command_tx, MultimeterCommand::SetTempSensorType(TempSensorType::Pt100));
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Unit:");
+                if ui.selectable_label(false, "°C").clicked() {
+                    send_command(command_tx, MultimeterCommand::SetTempUnit(TempUnit::Celsius));
+                }
+                if ui.selectable_label(false, "°F").clicked() {
+                    send_command(command_tx, MultimeterCommand::SetTempUnit(TempUnit::Fahrenheit));
+                }
+                if ui.selectable_label(false, "K").clicked() {
+                    send_command(command_tx, MultimeterCommand::SetTempUnit(TempUnit::Kelvin));
+                }
+            });
+        }
+
+        // Math/Statistics
+        ui.add_space(4.0);
+        ui.separator();
+        ui.label(egui::RichText::new("Math").size(11.0).strong());
+        ui.add_space(2.0);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 3.0;
+            let active = state.meter_math_function;
+            if ui.selectable_label(active == Some(MathFunction::Average), "MIN/MAX").clicked() {
+                if active == Some(MathFunction::Average) {
+                    send_command(command_tx, MultimeterCommand::StopMath);
+                } else {
+                    send_command(command_tx, MultimeterCommand::StartMath(MathFunction::Average));
+                }
+            }
+            if ui.selectable_label(active == Some(MathFunction::Null), "REL").clicked() {
+                if active == Some(MathFunction::Null) {
+                    send_command(command_tx, MultimeterCommand::StopMath);
+                } else {
+                    send_command(command_tx, MultimeterCommand::StartMath(MathFunction::Null));
+                }
+            }
+        });
+        if state.meter_math_function == Some(MathFunction::Average) {
+            if let Some(stats) = &state.meter_math_stats {
+                ui.horizontal(|ui| {
+                    let sec = theme::text_secondary(ui);
+                    ui.label(egui::RichText::new(format!("Min: {:.4}", stats.min)).size(10.0).color(sec));
+                    ui.label(egui::RichText::new(format!("Max: {:.4}", stats.max)).size(10.0).color(sec));
+                    ui.label(egui::RichText::new(format!("Avg: {:.4}", stats.avg)).size(10.0).color(sec));
+                });
+            }
+            send_command(command_tx, MultimeterCommand::QueryMathStats);
+        }
+
+        // Reset
+        ui.add_space(4.0);
+        ui.separator();
+        if ui.button(egui::RichText::new(format!("{} Reset Device", icons::ARROW_COUNTER_CLOCKWISE)).size(11.0)).clicked() {
+            send_command(command_tx, MultimeterCommand::ResetDevice);
+        }
 
         ui.add_space(4.0);
         ui.separator();
