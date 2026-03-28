@@ -412,7 +412,10 @@ impl eframe::App for ReadOutApp {
                 },
                 |ctx, _class| {
                     close_requested = ctx.input(|i| i.viewport().close_requested());
-                    crate::theme::apply_theme(ctx, self.config.dashboard_theme);
+                    if self.meter_control.applied_theme != Some(self.config.dashboard_theme) {
+                        crate::theme::apply_theme(ctx, self.config.dashboard_theme);
+                        self.meter_control.applied_theme = Some(self.config.dashboard_theme);
+                    }
                     let mc_action = widgets::meter_control::show(
                         ctx,
                         &self.state,

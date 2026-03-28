@@ -6,11 +6,15 @@ use readout_core::types::{Command, MultimeterCommand, MultimeterRange, Multimete
 
 pub struct MeterControlPanel {
     pub open: bool,
+    pub applied_theme: Option<readout_persistence::config::DashboardTheme>,
 }
 
 impl MeterControlPanel {
     pub fn new() -> Self {
-        Self { open: false }
+        Self {
+            open: false,
+            applied_theme: None,
+        }
     }
 }
 

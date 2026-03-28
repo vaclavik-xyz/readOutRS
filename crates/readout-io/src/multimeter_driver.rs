@@ -128,8 +128,10 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
         let cmd = mode_to_scpi(mode)
             .ok_or_else(|| TransportError::ConnectionLost("unsupported measurement mode".into()))?;
         let _ = self.transport.query(cmd).await?;
-        if let Ok(Some(m)) = self.transport.query("FUNC?").await {
-            self.current_mode = m.trim_matches('"').to_string();
+        match self.transport.query("FUNC?").await {
+            Ok(Some(m)) => self.current_mode = m.trim_matches('"').to_string(),
+            Ok(None) => tracing::warn!("FUNC? readback after set_mode returned empty"),
+            Err(e) => tracing::warn!("FUNC? readback after set_mode failed: {e}"),
         }
         Ok(())
     }
