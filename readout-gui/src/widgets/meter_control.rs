@@ -284,8 +284,12 @@ pub fn show(
                     ui.label(egui::RichText::new(format!("Avg: {:.4}", stats.avg)).size(10.0).color(sec));
                 });
             }
-            // Throttle stats query to ~1/sec (every 60th frame)
-            if ctx.cumulative_frame_nr() % 60 == 0 {
+            // Throttle stats query to ~1/sec using Instant-based timing
+            let now = std::time::Instant::now();
+            let stats_id = egui::Id::new("meter_stats_last_query");
+            let last: Option<std::time::Instant> = ctx.data(|d| d.get_temp(stats_id));
+            if last.map_or(true, |t| now.duration_since(t).as_secs_f32() >= 1.0) {
+                ctx.data_mut(|d| d.insert_temp(stats_id, now));
                 send_command(command_tx, MultimeterCommand::QueryMathStats);
             }
         }

@@ -205,7 +205,8 @@ impl ScpiTransport for SimulatedScpiTransport {
             if cmd == "FUNC2?" {
                 return Ok(Some(if self.dual_display { "FREQ" } else { "NONe" }.into()));
             }
-            self.dual_display = cmd.contains("FREQ");
+            // Strip quotes and compare case-insensitively
+            self.dual_display = cmd.replace('"', "").contains("FREQ");
             return Ok(None);
         }
         // NULL
@@ -264,9 +265,10 @@ impl ScpiTransport for SimulatedScpiTransport {
                 }
                 return Ok(None);
             }
-        }
-        // DB/DBM reference
-        if cmd.starts_with("CALC:DB:REF") || cmd.starts_with("CALC:DBM:REF") {
+            // DB/DBM reference (must be inside CALC: block)
+            if cmd.starts_with("CALC:DB:REF") || cmd.starts_with("CALC:DBM:REF") {
+                return Ok(None);
+            }
             return Ok(None);
         }
         // Remote mode

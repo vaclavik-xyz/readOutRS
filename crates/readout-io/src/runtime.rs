@@ -394,20 +394,22 @@ impl Runtime {
                 emit_meter_state(driver, event_tx, None).await;
             }
             MultimeterCommand::QueryMathStats => {
+                // Query fresh stats and emit full state in one call
                 let stats = driver.query_math_stats().await;
-                let s = driver.query_state().await;
+                let mut state = driver.query_state().await;
+                state.math_stats = stats;
                 let _ = event_tx.send(RuntimeEvent::MeterState {
                     identity: None,
-                    mode: s.mode,
-                    range_label: s.range_label,
-                    rate: s.rate,
-                    auto_range: s.auto_range,
-                    dual_display: s.dual_display,
-                    null_enabled: s.null_enabled,
-                    dc_filter: s.dc_filter,
-                    auto_impedance: s.auto_impedance,
-                    math_function: s.math_function,
-                    math_stats: stats,
+                    mode: state.mode,
+                    range_label: state.range_label,
+                    rate: state.rate,
+                    auto_range: state.auto_range,
+                    dual_display: state.dual_display,
+                    null_enabled: state.null_enabled,
+                    dc_filter: state.dc_filter,
+                    auto_impedance: state.auto_impedance,
+                    math_function: state.math_function,
+                    math_stats: state.math_stats,
                 });
             }
             MultimeterCommand::SetDbReference(reference) => {
