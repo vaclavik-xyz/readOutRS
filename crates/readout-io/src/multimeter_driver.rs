@@ -2,7 +2,7 @@ use crate::transport::{ScpiTransport, TransportError};
 use readout_core::alerts::{AlertConfiguration, AlertEvaluator};
 use readout_core::measurement_mode::{MeasurementMode, MeasurementModeParser};
 use readout_core::multimeter_parser::MultimeterParser;
-use readout_core::types::{DeviceId, DeviceMeasurement, MultimeterRange, MultimeterRate};
+use readout_core::types::{DeviceId, DeviceMeasurement, MathFunction, MathStats, MultimeterRange, MultimeterRate, TempSensorType, TempUnit};
 use std::time::Instant;
 
 pub struct MultimeterDriver<T: ScpiTransport> {
@@ -11,6 +11,7 @@ pub struct MultimeterDriver<T: ScpiTransport> {
     alert_config: AlertConfiguration,
     alarm_state: readout_core::types::AlarmState,
     meter_beep_enabled: bool,
+    dual_display_active: bool,
 }
 
 impl<T: ScpiTransport> MultimeterDriver<T> {
@@ -21,6 +22,7 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
             alert_config: AlertConfiguration::default(),
             alarm_state: readout_core::types::AlarmState::None,
             meter_beep_enabled: false,
+            dual_display_active: false,
         }
     }
 
@@ -48,6 +50,14 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
             Err(e) => {
                 self.transport.close().await;
                 return Err(e);
+            }
+        }
+
+        // Set continuity threshold if configured
+        if MeasurementModeParser::parse(Some(&self.current_mode)) == MeasurementMode::Continuity {
+            if self.alert_config.short_threshold > 0.0 {
+                let cmd = format!("CONT:THRE {}", self.alert_config.short_threshold);
+                let _ = self.transport.query(&cmd).await;
             }
         }
 
@@ -82,13 +92,28 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
             None => (None, String::new(), false, false),
         };
 
+        // Query secondary measurement when dual display is active
+        let (secondary_value, secondary_unit) = if self.dual_display_active {
+            match self.transport.query("MEAS2?").await {
+                Ok(Some(resp)) => {
+                    match MultimeterParser::parse(Some(&resp), "FREQ") {
+                        Some(p) => (p.value, Some(p.unit)),
+                        None => (None, None),
+                    }
+                }
+                _ => (None, None),
+            }
+        } else {
+            (None, None)
+        };
+
         let mut measurement = DeviceMeasurement {
             timestamp: Instant::now(),
             device: DeviceId::Multimeter,
             primary_value,
             primary_unit: unit,
-            secondary_value: None,
-            secondary_unit: None,
+            secondary_value,
+            secondary_unit,
             power_watts: None,
             energy_mwh: None,
             energy_mah: None,
@@ -159,6 +184,126 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
         Ok(())
     }
 
+    pub async fn set_dual_display(&mut self, enabled: bool) -> Result<(), TransportError> {
+        let cmd = if enabled { "FUNC2 \"FREQuency\"" } else { "FUNC2 \"NONe\"" };
+        let _ = self.transport.query(cmd).await?;
+        self.dual_display_active = enabled;
+        Ok(())
+    }
+
+    pub async fn query_dual_display(&mut self) -> bool {
+        self.transport.query("FUNC2?").await
+            .ok().flatten()
+            .map(|s| !s.trim().to_uppercase().contains("NON"))
+            .unwrap_or(false)
+    }
+
+    pub async fn set_null(&mut self, enabled: bool) -> Result<(), TransportError> {
+        if let Some(p) = self.sense_prefix() {
+            let cmd = format!("{p}:NULL {}", if enabled { "ON" } else { "OFF" });
+            let _ = self.transport.query(&cmd).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn query_null(&mut self) -> bool {
+        if let Some(p) = self.sense_prefix() {
+            let cmd = format!("{p}:NULL?");
+            return self.transport.query(&cmd).await
+                .ok().flatten()
+                .map(|s| s.trim() == "1" || s.trim().to_uppercase() == "ON")
+                .unwrap_or(false);
+        }
+        false
+    }
+
+    pub async fn set_dc_filter(&mut self, enabled: bool) -> Result<(), TransportError> {
+        let cmd = format!("VOLT:DC:FILT {}", if enabled { "ON" } else { "OFF" });
+        let _ = self.transport.query(&cmd).await?;
+        Ok(())
+    }
+
+    pub async fn set_auto_impedance(&mut self, enabled: bool) -> Result<(), TransportError> {
+        let cmd = format!("VOLT:DC:IMP:AUTO {}", if enabled { "ON" } else { "OFF" });
+        let _ = self.transport.query(&cmd).await?;
+        Ok(())
+    }
+
+    pub async fn set_continuity_threshold(&mut self, ohms: f64) -> Result<(), TransportError> {
+        let cmd = format!("CONT:THRE {}", ohms);
+        let _ = self.transport.query(&cmd).await?;
+        Ok(())
+    }
+
+    pub async fn set_temp_sensor_type(&mut self, sensor: TempSensorType) -> Result<(), TransportError> {
+        let cmd = match sensor {
+            TempSensorType::Kits90 => "TEMP:RTD:TYPE KITS90",
+            TempSensorType::Pt100 => "TEMP:RTD:TYPE PT100",
+        };
+        let _ = self.transport.query(cmd).await?;
+        Ok(())
+    }
+
+    pub async fn set_temp_unit(&mut self, unit: TempUnit) -> Result<(), TransportError> {
+        let cmd = match unit {
+            TempUnit::Celsius => "TEMP:RTD:UNIT C",
+            TempUnit::Fahrenheit => "TEMP:RTD:UNIT F",
+            TempUnit::Kelvin => "TEMP:RTD:UNIT K",
+        };
+        let _ = self.transport.query(cmd).await?;
+        Ok(())
+    }
+
+    pub async fn start_math(&mut self, func: MathFunction) -> Result<(), TransportError> {
+        let cmd = match func {
+            MathFunction::Null => "CALC:FUNC NULL",
+            MathFunction::Average => "CALC:FUNC AVERage",
+        };
+        let _ = self.transport.query(cmd).await?;
+        let _ = self.transport.query("CALC:STAT ON").await?;
+        Ok(())
+    }
+
+    pub async fn stop_math(&mut self) -> Result<(), TransportError> {
+        let _ = self.transport.query("CALC:STAT OFF").await?;
+        Ok(())
+    }
+
+    pub async fn query_math_stats(&mut self) -> Option<MathStats> {
+        let response = self.transport.query("CALC:AVER:ALL?").await.ok()??;
+        let parts: Vec<&str> = response.trim().split(',').collect();
+        if parts.len() >= 4 {
+            Some(MathStats {
+                min: parts[0].trim().parse().ok()?,
+                max: parts[1].trim().parse().ok()?,
+                avg: parts[2].trim().parse().ok()?,
+                count: parts[3].trim().parse().ok()?,
+            })
+        } else {
+            None
+        }
+    }
+
+    pub async fn reset_device(&mut self) -> Result<(), TransportError> {
+        let _ = self.transport.query("*RST").await?;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        Ok(())
+    }
+
+    fn sense_prefix(&self) -> Option<&'static str> {
+        let mode = MeasurementModeParser::parse(Some(&self.current_mode));
+        match mode {
+            MeasurementMode::DcVoltage => Some("VOLT:DC"),
+            MeasurementMode::AcVoltage => Some("VOLT:AC"),
+            MeasurementMode::DcCurrent => Some("CURR:DC"),
+            MeasurementMode::AcCurrent => Some("CURR:AC"),
+            MeasurementMode::Resistance => Some("RES"),
+            MeasurementMode::Capacitance => Some("CAP"),
+            MeasurementMode::Temperature => Some("TEMP:RTD"),
+            _ => None,
+        }
+    }
+
     pub async fn query_state(&mut self) -> MeterStateSnapshot {
         let mode = match self.transport.query("FUNC?").await {
             Ok(Some(m)) => {
@@ -179,7 +324,19 @@ impl<T: ScpiTransport> MultimeterDriver<T> {
             .ok().flatten()
             .map(|s| parse_rate(&s))
             .unwrap_or(MultimeterRate::Medium);
-        MeterStateSnapshot { mode, range_label, rate, auto_range }
+        let dual_display = self.query_dual_display().await;
+        self.dual_display_active = dual_display;
+        let null_enabled = self.query_null().await;
+
+        MeterStateSnapshot {
+            mode, range_label, rate, auto_range,
+            dual_display,
+            null_enabled,
+            dc_filter: false,
+            auto_impedance: false,
+            math_function: None,
+            math_stats: None,
+        }
     }
 }
 
@@ -188,6 +345,12 @@ pub struct MeterStateSnapshot {
     pub range_label: String,
     pub rate: MultimeterRate,
     pub auto_range: bool,
+    pub dual_display: bool,
+    pub null_enabled: bool,
+    pub dc_filter: bool,
+    pub auto_impedance: bool,
+    pub math_function: Option<MathFunction>,
+    pub math_stats: Option<MathStats>,
 }
 
 fn mode_to_scpi(mode: MeasurementMode) -> Option<&'static str> {

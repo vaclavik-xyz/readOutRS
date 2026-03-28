@@ -2,7 +2,7 @@ use crate::chart_pipeline::ChartPipeline;
 use crate::measurement_mode::MeasurementMode;
 use crate::types::*;
 use std::collections::{HashMap, VecDeque};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 const CHART_CAPACITY: usize = 360_000;
 const LOG_BUFFER_SIZE: usize = 200;
@@ -40,6 +40,12 @@ pub struct DashboardState {
     pub meter_range_label: String,
     pub meter_rate: MultimeterRate,
     pub meter_auto_range: bool,
+    pub meter_dual_display: bool,
+    pub meter_null_enabled: bool,
+    pub meter_dc_filter: bool,
+    pub meter_auto_impedance: bool,
+    pub meter_math_function: Option<MathFunction>,
+    pub meter_math_stats: Option<MathStats>,
     start_time: Instant,
 }
 
@@ -86,6 +92,12 @@ impl DashboardState {
             meter_range_label: String::new(),
             meter_rate: MultimeterRate::Medium,
             meter_auto_range: true,
+            meter_dual_display: false,
+            meter_null_enabled: false,
+            meter_dc_filter: false,
+            meter_auto_impedance: false,
+            meter_math_function: None,
+            meter_math_stats: None,
             start_time: Instant::now(),
         }
     }
@@ -174,7 +186,7 @@ impl DashboardState {
             RuntimeEvent::Log { level, message } => {
                 self.push_log(level, message);
             }
-            RuntimeEvent::MeterState { identity, mode, range_label, rate, auto_range } => {
+            RuntimeEvent::MeterState { identity, mode, range_label, rate, auto_range, dual_display, null_enabled, dc_filter, auto_impedance, math_function, math_stats } => {
                 if let Some(id) = identity {
                     self.meter_identity = Some(id);
                 }
@@ -182,6 +194,12 @@ impl DashboardState {
                 self.meter_range_label = range_label;
                 self.meter_rate = rate;
                 self.meter_auto_range = auto_range;
+                self.meter_dual_display = dual_display;
+                self.meter_null_enabled = null_enabled;
+                self.meter_dc_filter = dc_filter;
+                self.meter_auto_impedance = auto_impedance;
+                self.meter_math_function = math_function;
+                self.meter_math_stats = math_stats;
             }
         }
     }

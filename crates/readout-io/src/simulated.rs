@@ -13,6 +13,12 @@ pub struct SimulatedScpiTransport {
     auto_range: bool,
     range_index: u8,
     rate: char,
+    dual_display: bool,
+    null_enabled: bool,
+    dc_filter: bool,
+    auto_impedance: bool,
+    calc_active: bool,
+    calc_func: String,
 }
 
 impl SimulatedScpiTransport {
@@ -27,6 +33,12 @@ impl SimulatedScpiTransport {
             auto_range: true,
             range_index: 3,
             rate: 'M',
+            dual_display: false,
+            null_enabled: false,
+            dc_filter: false,
+            auto_impedance: false,
+            calc_active: false,
+            calc_func: String::new(),
         }
     }
 
@@ -133,6 +145,13 @@ impl ScpiTransport for SimulatedScpiTransport {
         if cmd == "FUNC?" || cmd == "FUNC1?" {
             return Ok(Some(self.mode.clone()));
         }
+        if cmd == "MEAS2?" {
+            if self.dual_display {
+                let t = self.sample_index as f64 / self.sample_rate_hz as f64;
+                return Ok(Some(format!("{:.6E}", 50.0 + 0.1 * (t * 0.3).sin())));
+            }
+            return Ok(None);
+        }
         if cmd.starts_with("MEAS") {
             let value = self.generate_value();
             self.sample_index += 1;
@@ -180,6 +199,85 @@ impl ScpiTransport for SimulatedScpiTransport {
         }
         if cmd == "RATE?" {
             return Ok(Some(self.rate.to_string()));
+        }
+        // Dual display
+        if cmd.starts_with("FUNC2") {
+            if cmd == "FUNC2?" {
+                return Ok(Some(if self.dual_display { "FREQ" } else { "NONe" }.into()));
+            }
+            self.dual_display = cmd.contains("FREQ");
+            return Ok(None);
+        }
+        // NULL
+        if cmd.ends_with(":NULL?") {
+            return Ok(Some(if self.null_enabled { "1" } else { "0" }.into()));
+        }
+        if cmd.ends_with(":NULL ON") || cmd.ends_with(":NULL OFF") {
+            self.null_enabled = cmd.ends_with(" ON");
+            return Ok(None);
+        }
+        // DC filter
+        if cmd.starts_with("VOLT:DC:FILT") {
+            if cmd == "VOLT:DC:FILT?" {
+                return Ok(Some(if self.dc_filter { "1" } else { "0" }.into()));
+            }
+            self.dc_filter = cmd.ends_with(" ON");
+            return Ok(None);
+        }
+        // Auto impedance
+        if cmd.starts_with("VOLT:DC:IMP:AUTO") {
+            if cmd == "VOLT:DC:IMP:AUTO?" {
+                return Ok(Some(if self.auto_impedance { "1" } else { "0" }.into()));
+            }
+            self.auto_impedance = cmd.ends_with(" ON");
+            return Ok(None);
+        }
+        // Continuity threshold
+        if cmd.starts_with("CONT:THRE") {
+            return Ok(None);
+        }
+        // Temperature config
+        if cmd.starts_with("TEMP:RTD:") {
+            return Ok(None);
+        }
+        // Math/calc
+        if cmd.starts_with("CALC:") {
+            if cmd == "CALC:STAT OFF" {
+                self.calc_active = false;
+                return Ok(None);
+            }
+            if cmd == "CALC:STAT ON" {
+                self.calc_active = true;
+                return Ok(None);
+            }
+            if cmd.starts_with("CALC:FUNC") {
+                if let Some(func) = cmd.strip_prefix("CALC:FUNC ") {
+                    self.calc_func = func.to_string();
+                }
+                return Ok(None);
+            }
+            if cmd == "CALC:AVER:ALL?" {
+                if self.calc_active {
+                    let t = self.sample_index as f64 / self.sample_rate_hz as f64;
+                    let avg = 12.0 + 0.25 * (t * 1.2).sin();
+                    return Ok(Some(format!("{:.6},{:.6},{:.6},{}", avg - 0.5, avg + 0.3, avg, self.sample_index)));
+                }
+                return Ok(None);
+            }
+        }
+        // Device reset
+        if cmd == "*RST" {
+            self.mode = DEFAULT_MODE.into();
+            self.auto_range = true;
+            self.range_index = 3;
+            self.rate = 'M';
+            self.dual_display = false;
+            self.null_enabled = false;
+            self.dc_filter = false;
+            self.auto_impedance = false;
+            self.calc_active = false;
+            self.calc_func.clear();
+            return Ok(None);
         }
         Ok(None)
     }

@@ -216,14 +216,7 @@ impl Runtime {
 
                 // Emit initial MeterState after connect
                 let identity = driver.query_identity().await;
-                let initial_state = driver.query_state().await;
-                let _ = event_tx.send(RuntimeEvent::MeterState {
-                    identity,
-                    mode: initial_state.mode,
-                    range_label: initial_state.range_label,
-                    rate: initial_state.rate,
-                    auto_range: initial_state.auto_range,
-                });
+                emit_meter_state(driver, &event_tx, identity).await;
 
                 let mut consecutive_errors: u32 = 0;
                 loop {
@@ -329,53 +322,99 @@ impl Runtime {
         match cmd {
             MultimeterCommand::QueryIdentity => {
                 let identity = driver.query_identity().await;
-                let state = driver.query_state().await;
-                let _ = event_tx.send(RuntimeEvent::MeterState {
-                    identity,
-                    mode: state.mode,
-                    range_label: state.range_label,
-                    rate: state.rate,
-                    auto_range: state.auto_range,
-                });
+                emit_meter_state(driver, event_tx, identity).await;
             }
             MultimeterCommand::SetMode(mode) => {
                 if let Err(e) = driver.set_mode(mode).await {
                     tracing::warn!("set_mode failed: {e}");
                 }
-                let state = driver.query_state().await;
-                let _ = event_tx.send(RuntimeEvent::MeterState {
-                    identity: None,
-                    mode: state.mode,
-                    range_label: state.range_label,
-                    rate: state.rate,
-                    auto_range: state.auto_range,
-                });
+                emit_meter_state(driver, event_tx, None).await;
             }
             MultimeterCommand::SetRange(range) => {
                 if let Err(e) = driver.set_range(range).await {
                     tracing::warn!("set_range failed: {e}");
                 }
-                let state = driver.query_state().await;
-                let _ = event_tx.send(RuntimeEvent::MeterState {
-                    identity: None,
-                    mode: state.mode,
-                    range_label: state.range_label,
-                    rate: state.rate,
-                    auto_range: state.auto_range,
-                });
+                emit_meter_state(driver, event_tx, None).await;
             }
             MultimeterCommand::SetRate(rate) => {
                 if let Err(e) = driver.set_rate(rate).await {
                     tracing::warn!("set_rate failed: {e}");
                 }
-                let state = driver.query_state().await;
+                emit_meter_state(driver, event_tx, None).await;
+            }
+            MultimeterCommand::SetDualDisplay(enabled) => {
+                if let Err(e) = driver.set_dual_display(enabled).await {
+                    tracing::warn!("set_dual_display failed: {e}");
+                }
+                emit_meter_state(driver, event_tx, None).await;
+            }
+            MultimeterCommand::SetNull(enabled) => {
+                if let Err(e) = driver.set_null(enabled).await {
+                    tracing::warn!("set_null failed: {e}");
+                }
+                emit_meter_state(driver, event_tx, None).await;
+            }
+            MultimeterCommand::SetDcFilter(enabled) => {
+                if let Err(e) = driver.set_dc_filter(enabled).await {
+                    tracing::warn!("set_dc_filter failed: {e}");
+                }
+                emit_meter_state(driver, event_tx, None).await;
+            }
+            MultimeterCommand::SetAutoImpedance(enabled) => {
+                if let Err(e) = driver.set_auto_impedance(enabled).await {
+                    tracing::warn!("set_auto_impedance failed: {e}");
+                }
+                emit_meter_state(driver, event_tx, None).await;
+            }
+            MultimeterCommand::SetContinuityThreshold(ohms) => {
+                if let Err(e) = driver.set_continuity_threshold(ohms).await {
+                    tracing::warn!("set_continuity_threshold failed: {e}");
+                }
+            }
+            MultimeterCommand::SetTempSensorType(sensor) => {
+                if let Err(e) = driver.set_temp_sensor_type(sensor).await {
+                    tracing::warn!("set_temp_sensor_type failed: {e}");
+                }
+            }
+            MultimeterCommand::SetTempUnit(unit) => {
+                if let Err(e) = driver.set_temp_unit(unit).await {
+                    tracing::warn!("set_temp_unit failed: {e}");
+                }
+            }
+            MultimeterCommand::StartMath(func) => {
+                if let Err(e) = driver.start_math(func).await {
+                    tracing::warn!("start_math failed: {e}");
+                }
+                emit_meter_state(driver, event_tx, None).await;
+            }
+            MultimeterCommand::StopMath => {
+                if let Err(e) = driver.stop_math().await {
+                    tracing::warn!("stop_math failed: {e}");
+                }
+                emit_meter_state(driver, event_tx, None).await;
+            }
+            MultimeterCommand::QueryMathStats => {
+                let stats = driver.query_math_stats().await;
+                let s = driver.query_state().await;
                 let _ = event_tx.send(RuntimeEvent::MeterState {
                     identity: None,
-                    mode: state.mode,
-                    range_label: state.range_label,
-                    rate: state.rate,
-                    auto_range: state.auto_range,
+                    mode: s.mode,
+                    range_label: s.range_label,
+                    rate: s.rate,
+                    auto_range: s.auto_range,
+                    dual_display: s.dual_display,
+                    null_enabled: s.null_enabled,
+                    dc_filter: s.dc_filter,
+                    auto_impedance: s.auto_impedance,
+                    math_function: s.math_function,
+                    math_stats: stats,
                 });
+            }
+            MultimeterCommand::ResetDevice => {
+                if let Err(e) = driver.reset_device().await {
+                    tracing::warn!("reset_device failed: {e}");
+                }
+                emit_meter_state(driver, event_tx, None).await;
             }
         }
     }
@@ -519,6 +558,27 @@ impl Runtime {
             });
         }
     }
+}
+
+async fn emit_meter_state<T: ScpiTransport>(
+    driver: &mut MultimeterDriver<T>,
+    event_tx: &broadcast::Sender<RuntimeEvent>,
+    identity: Option<String>,
+) {
+    let state = driver.query_state().await;
+    let _ = event_tx.send(RuntimeEvent::MeterState {
+        identity,
+        mode: state.mode,
+        range_label: state.range_label,
+        rate: state.rate,
+        auto_range: state.auto_range,
+        dual_display: state.dual_display,
+        null_enabled: state.null_enabled,
+        dc_filter: state.dc_filter,
+        auto_impedance: state.auto_impedance,
+        math_function: state.math_function,
+        math_stats: state.math_stats,
+    });
 }
 
 #[cfg(test)]

@@ -403,7 +403,7 @@ impl eframe::App for ReadOutApp {
                 {
                     let mut vp = egui::ViewportBuilder::default()
                         .with_title("Multimeter Control")
-                        .with_inner_size([320.0, 280.0])
+                        .with_inner_size([320.0, 480.0])
                         .with_resizable(false);
                     if self.always_on_top {
                         vp = vp.with_always_on_top();
