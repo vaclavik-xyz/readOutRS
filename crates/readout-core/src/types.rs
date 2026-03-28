@@ -39,12 +39,50 @@ pub enum MultimeterRate {
     Slow,   // RATE S
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TempSensorType {
+    Kits90,
+    Pt100,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TempUnit {
+    Celsius,
+    Fahrenheit,
+    Kelvin,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MathFunction {
+    Null,
+    Average,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct MathStats {
+    pub min: f64,
+    pub max: f64,
+    pub avg: f64,
+    pub count: u32,
+}
+
 #[derive(Debug, Clone)]
 pub enum MultimeterCommand {
     QueryIdentity,
     SetMode(crate::measurement_mode::MeasurementMode),
     SetRange(MultimeterRange),
     SetRate(MultimeterRate),
+    SetDualDisplay(bool),
+    SetNull(bool),
+    SetDcFilter(bool),
+    SetAutoImpedance(bool),
+    SetContinuityThreshold(f64),
+    SetTempSensorType(TempSensorType),
+    SetTempUnit(TempUnit),
+    StartMath(MathFunction),
+    StopMath,
+    QueryMathStats,
+    ResetDevice,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -105,6 +143,12 @@ pub enum RuntimeEvent {
         range_label: String,
         rate: MultimeterRate,
         auto_range: bool,
+        dual_display: bool,
+        null_enabled: bool,
+        dc_filter: bool,
+        auto_impedance: bool,
+        math_function: Option<MathFunction>,
+        math_stats: Option<MathStats>,
     },
 }
 
