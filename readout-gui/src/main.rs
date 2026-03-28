@@ -40,8 +40,12 @@ fn main() {
 
     let always_on_top = config.always_on_top;
     let mut viewport = egui::ViewportBuilder::default()
-        .with_inner_size(app::initial_window_size(config.show_mm, config.show_usbc))
-        .with_resizable(false);
+        .with_inner_size(app::initial_window_size())
+        .with_resizable(true)
+        .with_titlebar_shown(false)
+        .with_title_shown(false)
+        .with_fullsize_content_view(true)
+        .with_movable_by_background(true);
     if always_on_top {
         viewport = viewport.with_always_on_top();
     }
@@ -54,6 +58,10 @@ fn main() {
         "readout",
         options,
         Box::new(move |cc| {
+            let mut fonts = egui::FontDefinitions::default();
+            egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+            egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Bold);
+            cc.egui_ctx.set_fonts(fonts);
             Ok(Box::new(app::ReadOutApp::new(config, config_path, first_run, &cc.egui_ctx)))
         }),
     )

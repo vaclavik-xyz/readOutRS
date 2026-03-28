@@ -23,8 +23,16 @@ pub fn show(
     pipeline: Option<&mut ChartPipeline>,
     selected_range_idx: usize,
     usbc_metric: UsbCMetric,
-) -> SectionAction {
+    chart_visible: &mut bool,
+) -> (SectionAction, super::toolbar::ToolbarAction) {
     let mut action = SectionAction::None;
+    let mut toolbar_action = super::toolbar::ToolbarAction::None;
+
+    // Scale value fonts with window width (base design = 340px)
+    let scale = (ui.available_width() / 320.0).clamp(1.0, 2.5);
+    let value_size = 32.0 * scale;
+    let current_size = 22.0 * scale;
+    let chart_height = 80.0 * scale;
 
     let title = match device {
         DeviceId::Multimeter => "Multimeter",
@@ -52,6 +60,26 @@ pub fn show(
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     connection_led(ui, connection);
+                    ui.add_space(4.0);
+                    let chart_icon = if *chart_visible {
+                        egui_phosphor::regular::CHART_LINE
+                    } else {
+                        egui_phosphor::regular::CHART_LINE_DOWN
+                    };
+                    if ui
+                        .selectable_label(*chart_visible, egui::RichText::new(chart_icon).size(14.0))
+                        .on_hover_text(if *chart_visible { "Hide chart" } else { "Show chart" })
+                        .clicked()
+                    {
+                        *chart_visible = !*chart_visible;
+                    }
+                    if device == DeviceId::Multimeter {
+                        ui.add_space(4.0);
+                        let ta = super::toolbar::mm_inline_control(ui);
+                        if !matches!(ta, super::toolbar::ToolbarAction::None) {
+                            toolbar_action = ta;
+                        }
+                    }
                 });
             });
 
@@ -65,37 +93,35 @@ pub fn show(
 
                 ui.label(
                     egui::RichText::new(&value_text)
-                        .size(28.0)
+                        .size(value_size)
                         .strong()
                         .family(egui::FontFamily::Monospace),
                 );
 
-                ui.label(
-                    egui::RichText::new(&m.mode_string)
-                        .size(10.0)
-                        .color(theme::text_secondary(ui)),
-                );
+                if device != DeviceId::UsbC {
+                    ui.label(
+                        egui::RichText::new(&m.mode_string)
+                            .size(10.0)
+                            .color(theme::text_secondary(ui)),
+                    );
+                }
 
                 if device == DeviceId::UsbC {
-                    ui.add_space(4.0);
-                    if let (Some(current), Some(power)) = (m.secondary_value, m.power_watts) {
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                egui::RichText::new(format_si(current, "A"))
-                                    .size(14.0)
-                                    .family(egui::FontFamily::Monospace),
-                            );
-                            ui.label(
-                                egui::RichText::new("|")
-                                    .size(14.0)
-                                    .color(theme::text_secondary(ui)),
-                            );
-                            ui.label(
-                                egui::RichText::new(format_si(power, "W"))
-                                    .size(14.0)
-                                    .family(egui::FontFamily::Monospace),
-                            );
-                        });
+                    if let Some(current) = m.secondary_value {
+                        ui.label(
+                            egui::RichText::new(format_si(current, "A"))
+                                .size(current_size)
+                                .family(egui::FontFamily::Monospace)
+                                .color(colors::USBC_LINE),
+                        );
+                    }
+                    if let Some(power) = m.power_watts {
+                        ui.label(
+                            egui::RichText::new(format_si(power, "W"))
+                                .size(11.0)
+                                .family(egui::FontFamily::Monospace)
+                                .color(theme::text_secondary(ui)),
+                        );
                     }
                     if let Some(mwh) = m.energy_mwh {
                         ui.horizontal(|ui| {
@@ -104,8 +130,29 @@ pub fn show(
                                     .size(11.0)
                                     .color(theme::text_secondary(ui)),
                             );
-                            if ui
-                                .small_button("↺")
+                            if let Some(mah) = m.energy_mah {
+                                ui.label(
+                                    egui::RichText::new(format!("· {mah:.1} mAh"))
+                                        .size(11.0)
+                                        .color(theme::text_secondary(ui)),
+                                );
+                            }
+                            let (rect, reset_btn) = ui.allocate_exact_size(
+                                egui::vec2(14.0, 14.0),
+                                egui::Sense::click(),
+                            );
+                            let color = if reset_btn.hovered() { colors::ACCENT } else { theme::text_secondary(ui) };
+                            ui.painter().text(
+                                rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                "↺",
+                                egui::FontId::proportional(11.0),
+                                color,
+                            );
+                            if reset_btn.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+                            if reset_btn
                                 .on_hover_text("Reset energy counter")
                                 .clicked()
                             {
@@ -137,7 +184,7 @@ pub fn show(
             } else {
                 ui.label(
                     egui::RichText::new("---")
-                        .size(28.0)
+                        .size(value_size)
                         .family(egui::FontFamily::Monospace)
                         .color(theme::text_secondary(ui)),
                 );
@@ -156,6 +203,10 @@ pub fn show(
             }
 
             // Mini chart
+            if !*chart_visible {
+                // Skip chart rendering entirely
+                return;
+            }
             ui.add_space(4.0);
             let line_color = match device {
                 DeviceId::Multimeter => colors::MM_LINE,
@@ -196,9 +247,9 @@ pub fn show(
             // Chart with min/max labels on the right
             ui.horizontal(|ui| {
                 let chart_width = ui.available_width() - 45.0;
-                ui.allocate_ui(egui::vec2(chart_width, 80.0), |ui| {
+                ui.allocate_ui(egui::vec2(chart_width, chart_height), |ui| {
                     egui_plot::Plot::new(chart_id)
-                        .height(80.0)
+                        .height(chart_height)
                         .allow_drag(false)
                         .allow_zoom(false)
                         .allow_scroll(false)
@@ -243,7 +294,7 @@ pub fn show(
             });
         });
 
-    action
+    (action, toolbar_action)
 }
 
 fn format_compact(v: f64) -> String {

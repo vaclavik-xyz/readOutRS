@@ -2,7 +2,7 @@ use crate::widgets;
 use readout_core::dashboard_state::{DashboardState, UsbCMetric};
 use readout_core::types::{AlarmState, Command, ConnectionState, DeviceId, RuntimeEvent};
 use readout_io::runtime::Runtime;
-use readout_persistence::config::{AppConfiguration, DashboardDeviceVisibility};
+use readout_persistence::config::AppConfiguration;
 use readout_persistence::config_store;
 use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
@@ -24,6 +24,7 @@ impl RuntimeHandle {
         let command_tx = runtime.command_sender();
         let meter_beep_flag = runtime.meter_beep_flag();
 
+        let config_clone = config.clone();
         let ctx_clone = ctx.clone();
         let cancel_clone = cancel.clone();
         let bg_thread = std::thread::spawn(move || {
@@ -34,6 +35,51 @@ impl RuntimeHandle {
                     runtime.run(runtime_cancel).await;
                 });
 
+                // Persistence writers
+                let mut mm_csv = if config_clone.multimeter_csv_logging_enabled
+                    && !config_clone.multimeter_csv_log_file_path.is_empty()
+                {
+                    let mut logger = readout_persistence::csv_logger::CsvLogger::new(
+                        PathBuf::from(&config_clone.multimeter_csv_log_file_path),
+                    );
+                    logger.start();
+                    Some(logger)
+                } else {
+                    None
+                };
+
+                let mut usbc_csv = if config_clone.usbc_csv_logging_enabled
+                    && !config_clone.usbc_csv_log_file_path.is_empty()
+                {
+                    let mut logger = readout_persistence::csv_logger::CsvLogger::new(
+                        PathBuf::from(&config_clone.usbc_csv_log_file_path),
+                    );
+                    logger.start();
+                    Some(logger)
+                } else {
+                    None
+                };
+
+                let mut mm_obs = if !config_clone.multimeter_output_file.is_empty() {
+                    let mut writer = readout_persistence::obs_writer::ObsOutputWriter::new(
+                        PathBuf::from(&config_clone.multimeter_output_file),
+                    );
+                    writer.start();
+                    Some(writer)
+                } else {
+                    None
+                };
+
+                let mut usbc_obs = if !config_clone.usbc_output_file.is_empty() {
+                    let mut writer = readout_persistence::obs_writer::ObsOutputWriter::new(
+                        PathBuf::from(&config_clone.usbc_output_file),
+                    );
+                    writer.start();
+                    Some(writer)
+                } else {
+                    None
+                };
+
                 let mut last_repaint = std::time::Instant::now();
                 let repaint_interval = std::time::Duration::from_millis(200);
                 loop {
@@ -42,6 +88,27 @@ impl RuntimeHandle {
                         result = broadcast_rx.recv() => {
                             match result {
                                 Ok(event) => {
+                                    // Forward measurements to persistence writers
+                                    if let RuntimeEvent::Measurement { ref device, ref value } = event {
+                                        match device {
+                                            DeviceId::Multimeter => {
+                                                if let Some(ref csv) = mm_csv {
+                                                    csv.log(value);
+                                                }
+                                                if let Some(ref obs) = mm_obs {
+                                                    obs.update(value);
+                                                }
+                                            }
+                                            DeviceId::UsbC => {
+                                                if let Some(ref csv) = usbc_csv {
+                                                    csv.log(value);
+                                                }
+                                                if let Some(ref obs) = usbc_obs {
+                                                    obs.update(value);
+                                                }
+                                            }
+                                        }
+                                    }
                                     let _ = std_tx.send(event);
                                     let now = std::time::Instant::now();
                                     if now.duration_since(last_repaint) >= repaint_interval {
@@ -57,6 +124,12 @@ impl RuntimeHandle {
                         }
                     }
                 }
+
+                // Graceful shutdown of persistence writers
+                if let Some(ref mut w) = mm_csv { w.shutdown().await; }
+                if let Some(ref mut w) = usbc_csv { w.shutdown().await; }
+                if let Some(ref mut w) = mm_obs { w.shutdown().await; }
+                if let Some(ref mut w) = usbc_obs { w.shutdown().await; }
 
                 let _ = runtime_handle.await;
             });
@@ -85,54 +158,11 @@ impl Drop for RuntimeHandle {
     }
 }
 
-const WINDOW_WIDTH: f32 = 320.0;
-const WINDOW_HEIGHT_MM: f32 = 238.0;
-const WINDOW_HEIGHT_MM_ALARM: f32 = 258.0;
-const WINDOW_HEIGHT_USBC: f32 = 329.0;
-const WINDOW_HEIGHT_BOTH: f32 = 524.0;
+const WINDOW_WIDTH: f32 = 340.0;
+const WINDOW_HEIGHT_BOTH: f32 = 520.0;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CompactWindowMode {
-    Multimeter,
-    MultimeterAlarm,
-    UsbC,
-    Both,
-}
-
-impl CompactWindowMode {
-    fn from_state(
-        show_mm: bool,
-        show_usbc: bool,
-        mm_alarm: AlarmState,
-        _usbc_alarm: AlarmState,
-    ) -> Self {
-        match (show_mm, show_usbc) {
-            (true, false) if mm_alarm != AlarmState::None => Self::MultimeterAlarm,
-            (true, false) => Self::Multimeter,
-            // USB-C and combined mode use the alarm-capable height to avoid resize churn.
-            (false, true) => Self::UsbC,
-            (true, true) => Self::Both,
-            (false, false) => Self::Multimeter,
-        }
-    }
-
-    fn height(self) -> f32 {
-        match self {
-            Self::Multimeter => WINDOW_HEIGHT_MM,
-            Self::MultimeterAlarm => WINDOW_HEIGHT_MM_ALARM,
-            Self::UsbC => WINDOW_HEIGHT_USBC,
-            Self::Both => WINDOW_HEIGHT_BOTH,
-        }
-    }
-
-    fn inner_size(self) -> egui::Vec2 {
-        egui::vec2(WINDOW_WIDTH, self.height())
-    }
-}
-
-pub(crate) fn initial_window_size(show_mm: bool, show_usbc: bool) -> [f32; 2] {
-    let mode = CompactWindowMode::from_state(show_mm, show_usbc, AlarmState::None, AlarmState::None);
-    [WINDOW_WIDTH, mode.height()]
+pub(crate) fn initial_window_size() -> [f32; 2] {
+    [WINDOW_WIDTH, WINDOW_HEIGHT_BOTH]
 }
 
 pub struct ReadOutApp {
@@ -142,17 +172,17 @@ pub struct ReadOutApp {
     wizard: widgets::first_run_wizard::FirstRunWizard,
     audio: crate::audio::AlarmAudio,
     running: bool,
+    always_on_top: bool,
     show_mm: bool,
     show_usbc: bool,
-    show_log: bool,
-    always_on_top: bool,
     usbc_metric: UsbCMetric,
     selected_range_idx: usize,
+    mm_chart_visible: bool,
+    usbc_chart_visible: bool,
     config: AppConfiguration,
     config_path: PathBuf,
     ctx: egui::Context,
     applied_theme: Option<readout_persistence::config::DashboardTheme>,
-    window_mode: CompactWindowMode,
     meter_control: widgets::meter_control::MeterControlPanel,
     config_save_tx: Option<std::sync::mpsc::Sender<(AppConfiguration, PathBuf)>>,
     config_save_thread: Option<std::thread::JoinHandle<()>>,
@@ -196,21 +226,16 @@ impl ReadOutApp {
             wizard: widgets::first_run_wizard::FirstRunWizard::new(&config, first_run),
             audio: crate::audio::AlarmAudio::new(),
             running: !first_run,
-            show_mm: config.show_mm,
-            show_usbc: config.show_usbc,
-            show_log: false,
             always_on_top: config.always_on_top,
+            show_mm: true,
+            show_usbc: true,
             usbc_metric: UsbCMetric::Voltage,
             selected_range_idx: 0,
+            mm_chart_visible: true,
+            usbc_chart_visible: true,
             config_path,
             ctx: ctx.clone(),
             applied_theme: None,
-            window_mode: CompactWindowMode::from_state(
-                config.show_mm,
-                config.show_usbc,
-                AlarmState::None,
-                AlarmState::None,
-            ),
             meter_control: widgets::meter_control::MeterControlPanel::new(),
             config_save_tx: Some(config_save_tx),
             config_save_thread: Some(config_save_thread),
@@ -251,35 +276,6 @@ impl ReadOutApp {
         state
     }
 
-    fn sync_visibility_from_config(&mut self) {
-        match self.config.dashboard_device_visibility {
-            DashboardDeviceVisibility::Both => {
-                self.show_mm = true;
-                self.show_usbc = true;
-            }
-            DashboardDeviceVisibility::Multimeter => {
-                self.show_mm = true;
-                self.show_usbc = false;
-            }
-            DashboardDeviceVisibility::UsbC => {
-                self.show_mm = false;
-                self.show_usbc = true;
-            }
-        }
-        self.config.show_mm = self.show_mm;
-        self.config.show_usbc = self.show_usbc;
-    }
-
-    fn sync_visibility_to_config(&mut self) {
-        self.config.show_mm = self.show_mm;
-        self.config.show_usbc = self.show_usbc;
-        self.config.dashboard_device_visibility = match (self.show_mm, self.show_usbc) {
-            (true, true) => DashboardDeviceVisibility::Both,
-            (true, false) => DashboardDeviceVisibility::Multimeter,
-            (false, true) => DashboardDeviceVisibility::UsbC,
-            (false, false) => DashboardDeviceVisibility::Both,
-        };
-    }
 }
 
 impl Drop for ReadOutApp {
@@ -305,6 +301,12 @@ fn runtime_settings_changed(old: &AppConfiguration, new: &AppConfiguration) -> b
         || old.dcv_low_alarm_value != new.dcv_low_alarm_value
         || old.multimeter_auto_reconnect != new.multimeter_auto_reconnect
         || old.usbc_auto_reconnect != new.usbc_auto_reconnect
+        || old.multimeter_csv_logging_enabled != new.multimeter_csv_logging_enabled
+        || old.multimeter_csv_log_file_path != new.multimeter_csv_log_file_path
+        || old.usbc_csv_logging_enabled != new.usbc_csv_logging_enabled
+        || old.usbc_csv_log_file_path != new.usbc_csv_log_file_path
+        || old.multimeter_output_file != new.multimeter_output_file
+        || old.usbc_output_file != new.usbc_output_file
 }
 
 impl eframe::App for ReadOutApp {
@@ -344,37 +346,48 @@ impl eframe::App for ReadOutApp {
             if i.modifiers.command && i.key_pressed(egui::Key::P) {
                 self.state.paused = !self.state.paused;
             }
-            if i.modifiers.command && i.key_pressed(egui::Key::L) {
-                self.show_log = !self.show_log;
-            }
             if i.modifiers.command && i.key_pressed(egui::Key::Comma) {
-                self.settings_panel.open_with(&self.config);
+                self.settings_panel.open = true;
             }
             if i.modifiers.command && i.key_pressed(egui::Key::M) {
                 self.meter_control.open = !self.meter_control.open;
+            }
+            if i.modifiers.command && i.key_pressed(egui::Key::K) {
+                for pipeline in self.state.chart_pipelines.values_mut() {
+                    pipeline.clear();
+                }
+                for pipeline in self.state.usbc_chart_pipelines.values_mut() {
+                    pipeline.clear();
+                }
             }
         });
 
         // Overlays
         if let Some(new_config) = self.wizard.show(ctx) {
             self.config = new_config;
-            self.sync_visibility_from_config();
             self.enqueue_config_save(self.config.clone());
             self.start_runtime();
         }
 
-        if let Some(new_config) = self.settings_panel.show(ctx) {
-            let needs_restart = self.runtime.is_some()
-                && runtime_settings_changed(&self.config, &new_config);
-            self.config = new_config;
-            self.sync_visibility_from_config();
-
-            if needs_restart {
-                self.restart_runtime();
-            } else {
-                self.state.log_capture_enabled = self.config.runtime_log_capture_enabled;
+        {
+            let old_config = self.config.clone();
+            let theme = self.config.dashboard_theme;
+            let changed = self.settings_panel.show(
+                ctx,
+                &mut self.config,
+                theme,
+                self.always_on_top,
+            );
+            if changed {
+                let needs_restart = self.runtime.is_some()
+                    && runtime_settings_changed(&old_config, &self.config);
+                if needs_restart {
+                    self.restart_runtime();
+                } else {
+                    self.state.log_capture_enabled = self.config.runtime_log_capture_enabled;
+                }
+                self.enqueue_config_save(self.config.clone());
             }
-            self.enqueue_config_save(self.config.clone());
         }
 
         // Meter Control viewport
@@ -388,14 +401,45 @@ impl eframe::App for ReadOutApp {
             let mut close_requested = false;
             ctx.show_viewport_immediate(
                 egui::ViewportId::from_hash_of("meter_control"),
-                egui::ViewportBuilder::default()
-                    .with_title("Multimeter Control")
-                    .with_inner_size([320.0, 280.0])
-                    .with_resizable(false),
+                {
+                    let mut vp = egui::ViewportBuilder::default()
+                        .with_title("Multimeter Control")
+                        .with_inner_size([320.0, 280.0])
+                        .with_resizable(false);
+                    if self.always_on_top {
+                        vp = vp.with_always_on_top();
+                    }
+                    vp
+                },
                 |ctx, _class| {
                     close_requested = ctx.input(|i| i.viewport().close_requested());
                     crate::theme::apply_theme(ctx, self.config.dashboard_theme);
-                    widgets::meter_control::show(ctx, &self.state, command_tx.as_ref(), connected);
+                    let mc_action = widgets::meter_control::show(
+                        ctx,
+                        &self.state,
+                        command_tx.as_ref(),
+                        connected,
+                        self.config.dashboard_beep_master_enabled,
+                        self.config.beep_on_short_meter,
+                    );
+                    match mc_action {
+                        widgets::meter_control::MeterControlAction::TogglePcBeep => {
+                            self.config.dashboard_beep_master_enabled =
+                                !self.config.dashboard_beep_master_enabled;
+                            self.save_config_async();
+                        }
+                        widgets::meter_control::MeterControlAction::ToggleMeterBeep => {
+                            self.config.beep_on_short_meter = !self.config.beep_on_short_meter;
+                            if let Some(ref runtime) = self.runtime {
+                                runtime.meter_beep_flag.store(
+                                    self.config.beep_on_short_meter,
+                                    std::sync::atomic::Ordering::Relaxed,
+                                );
+                            }
+                            self.save_config_async();
+                        }
+                        widgets::meter_control::MeterControlAction::None => {}
+                    }
                 },
             );
             if close_requested {
@@ -403,32 +447,36 @@ impl eframe::App for ReadOutApp {
             }
         }
 
-        widgets::log_overlay::show(ctx, &self.state, &mut self.show_log);
-
         // --- Main content ---
         let mut toolbar_action = widgets::toolbar::ToolbarAction::None;
         let mut section_action = widgets::device_section::SectionAction::None;
+        let mut content_height = 0.0_f32;
         egui::CentralPanel::default().show(ctx, |ui| {
-            let mut toolbar_state = widgets::toolbar::ToolbarState {
+            let content_start = ui.cursor().top();
+
+            // Title bar
+            let csv_active = (self.config.multimeter_csv_logging_enabled
+                && !self.config.multimeter_csv_log_file_path.is_empty())
+                || (self.config.usbc_csv_logging_enabled
+                    && !self.config.usbc_csv_log_file_path.is_empty());
+            let obs_active = !self.config.multimeter_output_file.is_empty()
+                || !self.config.usbc_output_file.is_empty();
+            let title_state = widgets::toolbar::TitleBarState {
+                always_on_top: self.always_on_top,
+                csv_active,
+                obs_active,
+                selected_range_idx: self.selected_range_idx,
                 show_mm: self.show_mm,
                 show_usbc: self.show_usbc,
-                paused: self.state.paused,
-                pc_beep_enabled: self.config.dashboard_beep_master_enabled,
-                meter_beep_enabled: self.config.beep_on_short_meter,
-                selected_range_idx: self.selected_range_idx,
-                show_log: self.show_log,
-                always_on_top: self.always_on_top,
             };
-
-            toolbar_action = widgets::toolbar::show(ui, &mut toolbar_state);
-
-            // Read back visibility changes (toolbar mutates directly)
-            self.show_mm = toolbar_state.show_mm;
-            self.show_usbc = toolbar_state.show_usbc;
+            let ta = widgets::toolbar::show_title_bar(ui, &title_state);
+            if !matches!(ta, widgets::toolbar::ToolbarAction::None) {
+                toolbar_action = ta;
+            }
 
             ui.separator();
 
-            // Device sections — no ScrollArea so we can measure true content height.
+            // Multimeter section
             if self.show_mm {
                 let default_conn = ConnectionState::Disconnected;
                 let mm_conn = self.state.connection_state
@@ -439,7 +487,7 @@ impl eframe::App for ReadOutApp {
                     .copied()
                     .unwrap_or(AlarmState::None);
                 let mm_pipeline = self.state.chart_pipelines.get_mut(&DeviceId::Multimeter);
-                widgets::device_section::show(
+                let (_, ta) = widgets::device_section::show(
                     ui,
                     DeviceId::Multimeter,
                     self.state.latest_measurement.get(&DeviceId::Multimeter),
@@ -448,7 +496,11 @@ impl eframe::App for ReadOutApp {
                     mm_pipeline,
                     self.selected_range_idx,
                     self.usbc_metric,
+                    &mut self.mm_chart_visible,
                 );
+                if !matches!(ta, widgets::toolbar::ToolbarAction::None) {
+                    toolbar_action = ta;
+                }
             }
 
             if self.show_mm && self.show_usbc {
@@ -457,6 +509,7 @@ impl eframe::App for ReadOutApp {
                 ui.add_space(4.0);
             }
 
+            // USB-C section
             if self.show_usbc {
                 let default_conn = ConnectionState::Disconnected;
                 let usbc_conn = self.state.connection_state
@@ -468,7 +521,7 @@ impl eframe::App for ReadOutApp {
                     .unwrap_or(AlarmState::None);
                 let usbc_pipeline =
                     self.state.usbc_chart_pipelines.get_mut(&self.usbc_metric);
-                let sa = widgets::device_section::show(
+                let (sa, _) = widgets::device_section::show(
                     ui,
                     DeviceId::UsbC,
                     self.state.latest_measurement.get(&DeviceId::UsbC),
@@ -477,13 +530,35 @@ impl eframe::App for ReadOutApp {
                     usbc_pipeline,
                     self.selected_range_idx,
                     self.usbc_metric,
+                    &mut self.usbc_chart_visible,
                 );
                 if !matches!(sa, widgets::device_section::SectionAction::None) {
                     section_action = sa;
                 }
             }
 
+            // Measure content height for dynamic window sizing
+            let panel_margin = ui.style().spacing.window_margin;
+            content_height = ui.cursor().top() - content_start + panel_margin.top as f32 + panel_margin.bottom as f32;
+
+        }).response.context_menu(|ui| {
+            let ta = widgets::toolbar::context_menu(ui, self.state.paused);
+            if !matches!(ta, widgets::toolbar::ToolbarAction::None) {
+                toolbar_action = ta;
+            }
         });
+
+        // Dynamic window height — adjust to content, keep user's width
+        if content_height > 0.0 {
+            let current_width = ctx.input(|i| i.screen_rect().width());
+            let target_height = content_height.max(100.0);
+            let current_height = ctx.input(|i| i.screen_rect().height());
+            if (current_height - target_height).abs() > 2.0 {
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(
+                    egui::vec2(current_width, target_height),
+                ));
+            }
+        }
 
         // Handle toolbar actions
         match toolbar_action {
@@ -498,29 +573,11 @@ impl eframe::App for ReadOutApp {
                     pipeline.clear();
                 }
             }
-            widgets::toolbar::ToolbarAction::TogglePcBeep => {
-                self.config.dashboard_beep_master_enabled =
-                    !self.config.dashboard_beep_master_enabled;
-                self.save_config_async();
-            }
-            widgets::toolbar::ToolbarAction::ToggleMeterBeep => {
-                self.config.beep_on_short_meter = !self.config.beep_on_short_meter;
-                if let Some(ref runtime) = self.runtime {
-                    runtime.meter_beep_flag.store(
-                        self.config.beep_on_short_meter,
-                        std::sync::atomic::Ordering::Relaxed,
-                    );
-                }
-                self.save_config_async();
-            }
             widgets::toolbar::ToolbarAction::SetTimeRange(idx) => {
                 self.selected_range_idx = idx;
             }
             widgets::toolbar::ToolbarAction::OpenSettings => {
-                self.settings_panel.open_with(&self.config);
-            }
-            widgets::toolbar::ToolbarAction::ToggleLog => {
-                self.show_log = !self.show_log;
+                self.settings_panel.open = true;
             }
             widgets::toolbar::ToolbarAction::ToggleAlwaysOnTop => {
                 self.always_on_top = !self.always_on_top;
@@ -535,6 +592,14 @@ impl eframe::App for ReadOutApp {
             }
             widgets::toolbar::ToolbarAction::OpenMeterControl => {
                 self.meter_control.open = true;
+            }
+            widgets::toolbar::ToolbarAction::ToggleShowMm => {
+                if self.show_mm && !self.show_usbc { return; }
+                self.show_mm = !self.show_mm;
+            }
+            widgets::toolbar::ToolbarAction::ToggleShowUsbc => {
+                if self.show_usbc && !self.show_mm { return; }
+                self.show_usbc = !self.show_usbc;
             }
             widgets::toolbar::ToolbarAction::None => {}
         }
@@ -554,26 +619,6 @@ impl eframe::App for ReadOutApp {
             widgets::device_section::SectionAction::None => {}
         }
 
-        // Persist visibility on change
-        if self.config.show_mm != self.show_mm || self.config.show_usbc != self.show_usbc {
-            self.sync_visibility_to_config();
-            self.save_config_async();
-        }
-
-        let next_window_mode = CompactWindowMode::from_state(
-            self.show_mm,
-            self.show_usbc,
-            self.state.alarm_for(DeviceId::Multimeter),
-            self.state.alarm_for(DeviceId::UsbC),
-        );
-        if next_window_mode != self.window_mode {
-            self.window_mode = next_window_mode;
-            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(
-                self.window_mode.inner_size(),
-            ));
-            ctx.request_repaint();
-        }
-
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
     }
 }
@@ -581,173 +626,11 @@ impl eframe::App for ReadOutApp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widgets;
-    use readout_core::chart_pipeline::ChartPipeline;
-    use readout_core::measurement_mode::MeasurementMode;
-    use readout_core::types::DeviceMeasurement;
-    use std::time::Instant;
-
-    fn sample_measurement(device: DeviceId) -> DeviceMeasurement {
-        match device {
-            DeviceId::Multimeter => DeviceMeasurement {
-                timestamp: Instant::now(),
-                device,
-                primary_value: Some(12.345),
-                primary_unit: "V".into(),
-                secondary_value: None,
-                secondary_unit: None,
-                power_watts: None,
-                energy_mwh: None,
-                energy_mah: None,
-                mode: MeasurementMode::DcVoltage,
-                mode_string: "VOLT:DC".into(),
-                is_overload: false,
-                is_open: false,
-                is_short: false,
-                alarm_state: AlarmState::None,
-            },
-            DeviceId::UsbC => DeviceMeasurement {
-                timestamp: Instant::now(),
-                device,
-                primary_value: Some(5.123),
-                primary_unit: "V".into(),
-                secondary_value: Some(1.456),
-                secondary_unit: Some("A".into()),
-                power_watts: Some(7.462),
-                energy_mwh: Some(123.4),
-                energy_mah: Some(23.4),
-                mode: MeasurementMode::DcVoltage,
-                mode_string: "PD".into(),
-                is_overload: false,
-                is_open: false,
-                is_short: false,
-                alarm_state: AlarmState::None,
-            },
-        }
-    }
-
-    fn measured_content_height(
-        show_mm: bool,
-        show_usbc: bool,
-        mm_alarm: AlarmState,
-        usbc_alarm: AlarmState,
-    ) -> f32 {
-        let mut height = 0.0;
-        let ctx = egui::Context::default();
-        crate::theme::apply_theme(&ctx, readout_persistence::config::DashboardTheme::default());
-
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
-                let content = ui.scope(|ui| {
-                    let mut toolbar_state = widgets::toolbar::ToolbarState {
-                        show_mm,
-                        show_usbc,
-                        paused: false,
-                        pc_beep_enabled: false,
-                        meter_beep_enabled: false,
-                        selected_range_idx: 0,
-                        show_log: false,
-                        always_on_top: false,
-                    };
-                    widgets::toolbar::show(ui, &mut toolbar_state);
-                    ui.separator();
-
-                    if show_mm {
-                        let mut mm_pipeline = ChartPipeline::new(64);
-                        widgets::device_section::show(
-                            ui,
-                            DeviceId::Multimeter,
-                            Some(&sample_measurement(DeviceId::Multimeter)),
-                            &ConnectionState::Connected,
-                            mm_alarm,
-                            Some(&mut mm_pipeline),
-                            0,
-                            UsbCMetric::Voltage,
-                        );
-                    }
-
-                    if show_mm && show_usbc {
-                        ui.add_space(4.0);
-                        ui.separator();
-                        ui.add_space(4.0);
-                    }
-
-                    if show_usbc {
-                        let mut usbc_pipeline = ChartPipeline::new(64);
-                        widgets::device_section::show(
-                            ui,
-                            DeviceId::UsbC,
-                            Some(&sample_measurement(DeviceId::UsbC)),
-                            &ConnectionState::Connected,
-                            usbc_alarm,
-                            Some(&mut usbc_pipeline),
-                            0,
-                            UsbCMetric::Voltage,
-                        );
-                    }
-                });
-
-                let panel_margin = ui.style().spacing.window_margin;
-                height =
-                    content.response.rect.height() + panel_margin.top as f32 + panel_margin.bottom as f32;
-            });
-        });
-
-        height
-    }
 
     #[test]
-    fn measured_layout_heights_match_window_modes() {
-        let mm = measured_content_height(true, false, AlarmState::None, AlarmState::None);
-        let mm_alarm = measured_content_height(true, false, AlarmState::Open, AlarmState::None);
-        let usbc = measured_content_height(false, true, AlarmState::None, AlarmState::None);
-        let usbc_alarm = measured_content_height(false, true, AlarmState::None, AlarmState::HighAlarm);
-        let both = measured_content_height(true, true, AlarmState::None, AlarmState::None);
-        let both_mm_alarm = measured_content_height(true, true, AlarmState::Short, AlarmState::None);
-        let both_usbc_alarm = measured_content_height(true, true, AlarmState::None, AlarmState::LowAlarm);
-
-        assert_eq!(mm, WINDOW_HEIGHT_MM);
-        assert_eq!(mm_alarm, WINDOW_HEIGHT_MM_ALARM);
-        assert_eq!(usbc, WINDOW_HEIGHT_USBC - 20.0);
-        assert_eq!(usbc_alarm, WINDOW_HEIGHT_USBC);
-        assert_eq!(both, WINDOW_HEIGHT_BOTH - 20.0);
-        assert_eq!(both_mm_alarm, WINDOW_HEIGHT_BOTH);
-        assert_eq!(both_usbc_alarm, WINDOW_HEIGHT_BOTH);
-
-        assert_eq!(
-            CompactWindowMode::from_state(true, false, AlarmState::None, AlarmState::None).height(),
-            WINDOW_HEIGHT_MM,
-        );
-        assert_eq!(
-            CompactWindowMode::from_state(true, false, AlarmState::Short, AlarmState::None).height(),
-            WINDOW_HEIGHT_MM_ALARM,
-        );
-        assert_eq!(
-            CompactWindowMode::from_state(false, true, AlarmState::None, AlarmState::None).height(),
-            WINDOW_HEIGHT_USBC,
-        );
-        assert_eq!(
-            CompactWindowMode::from_state(false, true, AlarmState::None, AlarmState::HighAlarm).height(),
-            WINDOW_HEIGHT_USBC,
-        );
-        assert_eq!(
-            CompactWindowMode::from_state(true, true, AlarmState::None, AlarmState::None).height(),
-            WINDOW_HEIGHT_BOTH,
-        );
-        assert_eq!(
-            CompactWindowMode::from_state(true, true, AlarmState::Short, AlarmState::LowAlarm).height(),
-            WINDOW_HEIGHT_BOTH,
-        );
-    }
-
-    #[test]
-    fn log_overlay_starts_closed() {
-        let ctx = egui::Context::default();
-        let mut config = AppConfiguration::default();
-        config.runtime_log_panel_visible = true;
-
-        let app = ReadOutApp::new(config, PathBuf::from("/tmp/readout-test-config.json"), true, &ctx);
-
-        assert!(!app.show_log);
+    fn initial_window_size_dimensions() {
+        let [w, h] = initial_window_size();
+        assert_eq!(w, WINDOW_WIDTH);
+        assert_eq!(h, WINDOW_HEIGHT_BOTH);
     }
 }
