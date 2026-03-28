@@ -1,17 +1,19 @@
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::symbols::Marker;
 use ratatui::widgets::canvas::{Canvas, Line as CanvasLine};
 use ratatui::widgets::{Block, Borders, Paragraph};
-use ratatui::Frame;
 
 use readout_core::chart_pipeline::ChartPipeline;
-use readout_core::dashboard_state::{UsbCMetric, USBC_METRICS};
+use readout_core::dashboard_state::{USBC_METRICS, UsbCMetric};
 use readout_core::types::DeviceId;
 use std::collections::HashMap;
 use std::time::Duration;
 
 const RANGE_OPTIONS: &[(Duration, &str)] = &[
+    (Duration::from_secs(30), "30s"),
+    (Duration::from_secs(60), "1m"),
     (Duration::from_secs(120), "2m"),
     (Duration::from_secs(300), "5m"),
     (Duration::from_secs(600), "10m"),
@@ -72,6 +74,17 @@ impl TuiChartState {
     }
 }
 
+/// Format a Y-axis value compactly: drop trailing zeros, keep consistent precision.
+fn format_y_label(v: f64) -> String {
+    if v.abs() >= 1000.0 {
+        format!("{:.0}", v)
+    } else if v.abs() >= 100.0 {
+        format!("{:.1}", v)
+    } else {
+        format!("{:.2}", v)
+    }
+}
+
 fn y_bounds(buf: &[(f64, f64)]) -> [f64; 2] {
     let (lo, hi) = buf
         .iter()
@@ -118,30 +131,48 @@ fn render_canvas_chart(
     let y = y_bounds(buf);
     let x = x_bounds(buf);
 
-    // Layout: [y-axis labels (6 chars)] [canvas]
-    let chunks = Layout::horizontal([Constraint::Length(7), Constraint::Min(10)]).split(area);
+    // Compute average
+    let avg = if buf.is_empty() {
+        0.0
+    } else {
+        buf.iter().map(|(_, v)| v).sum::<f64>() / buf.len() as f64
+    };
 
-    // Position labels at top and bottom of chart area
-    let label_area = chunks[0];
-    if label_area.height >= 3 {
-        let top_label = Rect::new(label_area.x, label_area.y + 1, label_area.width, 1);
-        let bottom_label = Rect::new(
-            label_area.x,
-            label_area.y + label_area.height.saturating_sub(2),
-            label_area.width,
-            1,
+    // Format all Y labels to same width
+    let top_str = format_y_label(y[1]);
+    let avg_str = format_y_label(avg);
+    let bot_str = format_y_label(y[0]);
+    let label_width = top_str.len().max(avg_str.len()).max(bot_str.len()) as u16 + 1;
+
+    // Layout: [canvas] [gap 1] [y-axis labels] [gap 1]
+    let label_col = label_width + 1; // +1 right margin
+    let chunks =
+        Layout::horizontal([Constraint::Min(10), Constraint::Length(label_col)]).split(area);
+
+    // Position labels aligned to canvas inner area (accounting for border)
+    let label_area = chunks[1];
+    if label_area.height >= 5 {
+        let inner_top = label_area.y + 1;
+        let inner_bottom = label_area.y + label_area.height.saturating_sub(2);
+
+        frame.render_widget(
+            Paragraph::new(format!(" {top_str}")).style(Style::default().fg(Color::DarkGray)),
+            Rect::new(label_area.x, inner_top, label_area.width, 1),
         );
         frame.render_widget(
-            Paragraph::new(format!("{:>6.2}", y[1])).style(Style::default().fg(Color::DarkGray)),
-            top_label,
+            Paragraph::new(format!(" {bot_str}")).style(Style::default().fg(Color::DarkGray)),
+            Rect::new(label_area.x, inner_bottom, label_area.width, 1),
         );
+
+        // Average: always vertically centered in the box
+        let mid_row = label_area.y + label_area.height / 2;
         frame.render_widget(
-            Paragraph::new(format!("{:>6.2}", y[0])).style(Style::default().fg(Color::DarkGray)),
-            bottom_label,
+            Paragraph::new(format!(" {avg_str}")).style(Style::default().fg(Color::Yellow)),
+            Rect::new(label_area.x, mid_row, label_area.width, 1),
         );
     }
 
-    // Canvas with Bresenham lines
+    // Canvas with data lines only
     let canvas = Canvas::default()
         .block(
             Block::default()
@@ -154,7 +185,6 @@ fn render_canvas_chart(
         .x_bounds(x)
         .y_bounds(y)
         .paint(move |ctx| {
-            // Draw lines between consecutive points (Bresenham)
             for pair in buf.windows(2) {
                 ctx.draw(&CanvasLine {
                     x1: pair[0].0,
@@ -166,7 +196,7 @@ fn render_canvas_chart(
             }
         });
 
-    frame.render_widget(canvas, chunks[1]);
+    frame.render_widget(canvas, chunks[0]);
 }
 
 pub fn render(
