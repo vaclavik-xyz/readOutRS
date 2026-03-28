@@ -1,0 +1,155 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            label: macos-arm64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            label: macos-x64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            label: linux-x64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            label: windows-x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libgl1-mesa-dev libasound2-dev libudev-dev
+
+      - name: Build release binaries
+        run: cargo build --release --target ${{ matrix.target }}
+
+      # macOS: create .app bundle for GUI
+      - name: Create macOS .app bundle
+        if: runner.os == 'macOS'
+        run: |
+          APP_DIR="readOut.app/Contents"
+          mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources"
+          cp target/${{ matrix.target }}/release/readout-gui "$APP_DIR/MacOS/readout-gui"
+          cp readout-gui/assets/readout.icns "$APP_DIR/Resources/readout.icns"
+          cat > "$APP_DIR/Info.plist" << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key>
+            <string>readout-gui</string>
+            <key>CFBundleIconFile</key>
+            <string>readout</string>
+            <key>CFBundleIdentifier</key>
+            <string>xyz.vaclavik.readout</string>
+            <key>CFBundleName</key>
+            <string>readOut</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${GITHUB_REF_NAME#v}</string>
+            <key>CFBundleVersion</key>
+            <string>${GITHUB_REF_NAME#v}</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>13.0</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+          # Replace version placeholder
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i '' "s/\${GITHUB_REF_NAME#v}/$VERSION/g" "$APP_DIR/Info.plist"
+
+      - name: Create macOS DMG
+        if: runner.os == 'macOS'
+        run: |
+          brew install create-dmg
+          create-dmg \
+            --volname "readOut" \
+            --volicon "readout-gui/assets/readout.icns" \
+            --background "docs/dmg_background.png" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 80 \
+            --icon "readOut.app" 170 190 \
+            --app-drop-link 430 190 \
+            --no-internet-enable \
+            "readOut-${{ matrix.label }}.dmg" \
+            "readOut.app" || true
+
+      # Package archives
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/readout-gui dist/ 2>/dev/null || true
+          cp target/${{ matrix.target }}/release/readout-tui dist/ 2>/dev/null || true
+          tar czf readOutRS-${{ matrix.label }}.tar.gz -C dist .
+
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/readout-gui.exe dist/ 2>/dev/null || true
+          cp target/${{ matrix.target }}/release/readout-tui.exe dist/ 2>/dev/null || true
+          7z a readOutRS-${{ matrix.label }}.zip ./dist/*
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.label }}
+          path: |
+            readOutRS-*.tar.gz
+            readOutRS-*.zip
+            readOut-*.dmg
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            readOutRS-*.tar.gz
+            readOutRS-*.zip
+            readOut-*.dmg
+
+  update-homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update Homebrew tap
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          repository: vaclavik-xyz/homebrew-tap
+          event-type: update-formula
+          client-payload: '{"tag": "${{ github.ref_name }}"}'
