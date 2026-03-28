@@ -1,27 +1,65 @@
 <p align="center">
-  <img src="readout-gui/assets/icon_256x256.png" width="128" alt="readOut icon">
+  <img src="docs/icon_rounded.png" width="128" alt="readOut icon">
 </p>
 
 # readOutRS
 
-Real-time measurement dashboard for multimeters (SCPI) and USB-C power meters.
+Real-time measurement dashboard for SCPI multimeters and USB-C power meters.
 
 Rust rewrite of [readOut](https://github.com/vaclavik-xyz/readOut) with two frontends:
 - **readout-gui** — lightweight desktop widget (egui)
 - **readout-tui** — terminal dashboard (ratatui)
 
-Cross-platform: macOS, Linux, Windows.
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/gui_dashboard.JPG" width="280" alt="GUI Dashboard">
+  <br><em>GUI</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/tui_dashboard.JPG" width="400" alt="TUI Dashboard">
+  <br><em>TUI</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/mm_ctl.JPG" width="200" alt="Meter Control">
+  <br><em>Meter Control</em>
+</p>
+
+## Supported Hardware
+
+### Multimeter
+
+Uses standard SCPI protocol over serial (115200 baud, 8N1). Tested with:
+
+- **OWON XDM1041** / **XDM2041**
+
+Other SCPI multimeters with serial output should work for basic measurement readout. Advanced features (dual display, math functions) may vary by manufacturer.
+
+### USB-C Power Meter
+
+- **[PLD USB-C Meter](https://pldaniels.com/shop/)** by Paul Daniels ([firmware source](https://github.com/inflex/pld-usbc-meter))
+
+Custom binary protocol at 9600 baud — this is the only supported USB-C meter.
+
+### Platform
+
+Tested on **macOS** only. The codebase is cross-platform (macOS, Linux, Windows) but Linux and Windows have not been tested.
 
 ## Features
 
 - Live voltage, current, power, and energy readings
 - Configurable chart history (30s to 1h)
+- Full multimeter remote control (mode, range, rate, dual display, math, NULL, filters, dB/dBm)
 - CSV logging for data analysis
 - OBS text file output for streaming overlays
-- Alarm system with PC and meter beep notifications
-- Multimeter remote control (mode, range, rate)
-- Always-on-top widget mode
-- Light/dark/system theme
+- Alarm system (high/low voltage, short circuit) with PC and meter beep notifications
+- Device visibility toggle and energy reset
+- Always-on-top widget mode (GUI)
+- Light/dark/system theme (GUI)
+- Log panel overlay (TUI)
+- Simulator mode for development without hardware
 
 ## Architecture
 
@@ -36,6 +74,32 @@ readOutRS/
 ```
 
 Channel-based event bus (`tokio::sync::broadcast`) connects the backend runtime to frontends. Each device runs as an independent Tokio task with automatic reconnection.
+
+## Install
+
+### macOS (Homebrew)
+
+```bash
+brew tap vaclavik-xyz/tap
+
+# GUI app → /Applications
+brew install --cask readout
+
+# CLI binaries (readout-gui + readout-tui)
+brew install readout
+```
+
+### macOS (DMG)
+
+Download the `.dmg` from [Releases](https://github.com/vaclavik-xyz/readOutRS/releases/latest). The app is not code-signed, so macOS will block it. After copying to Applications, run:
+
+```bash
+xattr -cr /Applications/readOut.app
+```
+
+### Linux / Windows
+
+Download the archive from [Releases](https://github.com/vaclavik-xyz/readOutRS/releases/latest) and extract the binaries.
 
 ## Build
 
@@ -67,7 +131,9 @@ cargo test
 cargo test -p readout-io --features soak -- soak --nocapture
 ```
 
-## Keyboard shortcuts (GUI)
+## Keyboard Shortcuts
+
+### GUI
 
 | Shortcut | Action |
 |----------|--------|
@@ -77,14 +143,19 @@ cargo test -p readout-io --features soak -- soak --nocapture
 | `Cmd+,` | Settings |
 | Right-click | Context menu |
 
-## Keyboard shortcuts (TUI)
+### TUI
 
-| Shortcut | Action |
-|----------|--------|
+| Key | Action |
+|-----|--------|
 | `q` | Quit |
 | `p` | Pause/resume |
+| `c` | Meter control |
 | `s` | Settings |
-| `←` / `→` | Chart range |
+| `l` | Log panel |
+| `m` | Cycle USB-C metric |
+| `e` | Reset USB-C energy |
+| `1` / `2` | Toggle MM / USB-C visibility |
+| `←` / `→` | Chart time range |
 
 ## License
 
