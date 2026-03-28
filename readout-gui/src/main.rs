@@ -18,6 +18,17 @@ struct Cli {
     simulator: bool,
 }
 
+fn load_icon() -> egui::IconData {
+    let png_bytes = include_bytes!("../assets/icon_256x256.png");
+    let image = image::load_from_memory(png_bytes).expect("Failed to load icon");
+    let rgba = image.to_rgba8();
+    egui::IconData {
+        rgba: rgba.to_vec(),
+        width: rgba.width(),
+        height: rgba.height(),
+    }
+}
+
 fn main() {
     tracing_subscriber::fmt::init();
 
@@ -38,6 +49,7 @@ fn main() {
         config.use_simulator = true;
     }
 
+    let icon = load_icon();
     let always_on_top = config.always_on_top;
     let mut viewport = egui::ViewportBuilder::default()
         .with_inner_size(app::initial_window_size())
@@ -45,7 +57,8 @@ fn main() {
         .with_titlebar_shown(false)
         .with_title_shown(false)
         .with_fullsize_content_view(true)
-        .with_movable_by_background(true);
+        .with_movable_by_background(true)
+        .with_icon(icon);
     if always_on_top {
         viewport = viewport.with_always_on_top();
     }

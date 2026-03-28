@@ -5,36 +5,36 @@ Use this prompt with an image generation AI (DALL-E, Midjourney, etc.) to create
 ## Prompt
 
 ```
-Design a macOS app icon for "readOut", a real-time measurement dashboard app for multimeters and USB-C power meters.
+Design a macOS app icon for "readOut", a real-time measurement dashboard for multimeters and USB-C power meters.
 
-The icon should convey: precision measurement, live data, electronics.
+The icon is a single clean sine wave on a dark background. Nothing else. No text, no numbers, no UI elements, no grid lines.
 
-Visual elements to incorporate:
-- A stylized digital multimeter display or voltage readout showing a value like "12.04"
-- A subtle sine wave or signal line in teal/cyan color
-- Clean, minimal, modern aesthetic matching macOS design language
+The sine wave:
+- One smooth, continuous sine wave spanning the full width of the icon
+- Teal/cyan color (#00C8AF) with a soft glow or bloom effect
+- The line should feel alive — like a live signal on an oscilloscope
+- Medium thickness, confident stroke
 
-Color palette:
-- Primary: teal/cyan (#00C8AF) — the app's accent color
-- Background: dark blue-gray (#0A0C10) — the app's dark theme base
-- Signal line: bright blue (#3CAAFA) for multimeter, orange (#FFA03C) for USB-C
+Background:
+- Deep dark blue-gray (#0A0C10 to #10131A), subtle gradient allowed
+- No grid, no axes, no labels — just darkness and the wave
 
 Style:
+- Extremely minimal — the wave IS the icon
 - Rounded square (macOS icon shape)
-- Flat/semi-flat design with subtle depth
-- No photorealism — clean vector-style illustration
-- Should be recognizable at 16x16 and look great at 1024x1024
-- Professional, technical, but not boring
+- The glow gives it depth without being skeuomorphic
+- Should read clearly at 16x16 (just a glowing curve) and look stunning at 1024x1024
+- Think: if Apple made an oscilloscope app
 
-Do NOT include: text labels, generic gear/settings icons, stock photo elements, gradients that look dated.
+Do NOT include: text, numbers, grid lines, axes, UI chrome, probe tips, realistic elements, multiple waves, gradients that look dated.
 ```
 
 ## Variations to try
 
-1. **Readout focused**: Digital number display (monospace font showing voltage) with a small waveform underneath
-2. **Signal focused**: Oscilloscope-style sine wave on dark background with teal glow
-3. **Meter focused**: Simplified multimeter probe tips with a spark/signal between them
-4. **Abstract**: Geometric representation of a measurement — a line chart peak with precise tick marks
+1. **Single sine**: One perfect sine wave, centered, teal glow
+2. **Dual signal**: Teal sine wave (top) with a subtle orange (#FFA03C) wave below — representing both meters
+3. **Pulse**: Instead of a sine, a single sharp pulse/peak — like a voltage spike captured in time
+4. **Fading trail**: The wave fades from bright on the right to dim on the left — suggesting live, moving data
 
 ## Technical requirements
 

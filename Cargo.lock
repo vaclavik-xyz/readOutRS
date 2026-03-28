@@ -3764,6 +3764,7 @@ dependencies = [
  "egui",
  "egui-phosphor",
  "egui_plot",
+ "image",
  "readout-core",
  "readout-io",
  "readout-persistence",
