@@ -8,6 +8,7 @@ mod viewer_toolbar;
 
 use self::data_store::CsvDataStore;
 use self::overlay::ModeChangeMarker;
+use self::render_cache::RenderCache;
 use self::render_sampling::visible_point_budget;
 use self::source_model::XDomain;
 use chrono::{DateTime, Local};
@@ -69,6 +70,7 @@ pub struct GraphViewerWindow {
     hovered_cursor: Option<info_bar::CursorInfo>,
     fit_next_frame: bool,
     last_error: Option<String>,
+    render_cache: RenderCache,
     queued_dialog_request: Option<DialogRequest>,
     pending_dialog: Option<PendingDialog>,
 }
@@ -111,6 +113,7 @@ impl GraphViewerWindow {
             hovered_cursor: None,
             fit_next_frame: false,
             last_error: None,
+            render_cache: RenderCache::new(),
             queued_dialog_request: None,
             pending_dialog: None,
         }
@@ -237,10 +240,12 @@ impl GraphViewerWindow {
                 {
                     file.visible = !file.visible;
                 }
+                self.render_cache.invalidate_source(source_id);
                 self.hovered_cursor = None;
             }
             ViewerAction::RemoveSource(source_id) => {
                 self.data_store.remove_source(source_id);
+                self.render_cache.invalidate_source(source_id);
                 if self.data_store.file_count() == 0 {
                     self.overlay = overlay::OverlayState::default();
                     self.following = false;
@@ -375,6 +380,8 @@ impl GraphViewerWindow {
         let active_domain = self.data_store.active_domain();
         let fit_next_frame = self.fit_next_frame;
         let snap_follow_next_frame = self.snap_follow_next_frame;
+        let active_ids: Vec<_> = self.data_store.files().iter().map(|file| file.id).collect();
+        self.render_cache.retain_sources(&active_ids);
         let mut consumed_follow_snap = false;
         let plot_response = egui_plot::Plot::new(GRAPH_VIEWER_PLOT_ID)
             .allow_zoom(true)
@@ -396,29 +403,73 @@ impl GraphViewerWindow {
                     Some((*visible_bounds.start(), *visible_bounds.end())),
                     Some(plot_ui.response().rect.width()),
                 );
+                let current_span = plot_query
+                    .x_range
+                    .map(|(lo, hi)| (hi - lo).abs())
+                    .unwrap_or(0.0);
 
                 for file in self.data_store.files() {
                     if !file.visible {
                         continue;
                     }
 
-                    let points = self.data_store.query_points_in_view(
-                        file.id,
-                        plot_query.x_range,
-                        plot_query.target_points,
-                    );
-                    if points.is_empty() {
+                    if self
+                        .render_cache
+                        .get_series(
+                            file.id,
+                            file.render_revision,
+                            plot_query.x_range,
+                            current_span,
+                            plot_query.target_points,
+                        )
+                        .is_some()
+                    {
                         continue;
                     }
 
-                    let series: Vec<[f64; 2]> = points
-                        .into_iter()
-                        .map(|(time, value)| [time.as_secs_f64(), value])
-                        .collect();
-                    plot_ui.line(
-                        egui_plot::Line::new(file.label.clone(), series)
-                            .stroke(egui::Stroke::new(1.5, file.color)),
+                    let source_id = file.id;
+                    let revision = file.render_revision;
+                    let points = self.data_store.query_points_in_view(
+                        source_id,
+                        plot_query.x_range,
+                        plot_query.target_points,
                     );
+                    let series: Vec<egui_plot::PlotPoint> = points
+                        .into_iter()
+                        .map(|(time, value)| egui_plot::PlotPoint::new(time.as_secs_f64(), value))
+                        .collect();
+
+                    self.render_cache.store_series(
+                        source_id,
+                        revision,
+                        plot_query.x_range,
+                        current_span,
+                        plot_query.target_points,
+                        series,
+                    );
+                }
+
+                for file in self.data_store.files() {
+                    if !file.visible {
+                        continue;
+                    }
+
+                    if let Some(cached) = self.render_cache.get_series(
+                        file.id,
+                        file.render_revision,
+                        plot_query.x_range,
+                        current_span,
+                        plot_query.target_points,
+                    ) {
+                        if cached.is_empty() {
+                            continue;
+                        }
+
+                        plot_ui.line(
+                            egui_plot::Line::new(file.label.clone(), cached)
+                                .stroke(egui::Stroke::new(1.5, file.color)),
+                        );
+                    }
                 }
 
                 overlay::draw_selection(plot_ui, self.overlay.selection);
