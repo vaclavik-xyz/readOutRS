@@ -7,6 +7,7 @@ mod viewer_toolbar;
 
 use self::data_store::CsvDataStore;
 use self::overlay::ModeChangeMarker;
+use self::render_sampling::visible_point_budget;
 use self::source_model::XDomain;
 use chrono::{DateTime, Local};
 use readout_core::types::{DeviceId, RuntimeEvent};
@@ -19,6 +20,13 @@ const LIVE_POLL_INTERVAL: Duration = Duration::from_millis(200);
 pub const GRAPH_VIEWER_WINDOW_TITLE: &str = "Graph Viewer";
 pub const GRAPH_VIEWER_VIEWPORT_ID: &str = "graph_viewer";
 pub const GRAPH_VIEWER_PLOT_ID: &str = "graph_viewer_plot";
+const SAFE_PLOT_QUERY_BUDGET: usize = 256;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct PlotQuery {
+    x_range: Option<(f64, f64)>,
+    target_points: usize,
+}
 
 pub struct GraphViewerWindow {
     pub open: bool,
@@ -290,13 +298,22 @@ impl GraphViewerWindow {
                 self.overlay.cursor_pos = cursor_pos;
                 self.hovered_cursor =
                     cursor_pos.and_then(|pos| self.cursor_info_for_point(pos.x, pos.y));
+                let visible_bounds = plot_ui.plot_bounds().range_x();
+                let plot_query = build_plot_query(
+                    Some((*visible_bounds.start(), *visible_bounds.end())),
+                    Some(plot_ui.response().rect.width()),
+                );
 
                 for file in self.data_store.files() {
                     if !file.visible {
                         continue;
                     }
 
-                    let points = self.data_store.query_points(file.id, 2_000);
+                    let points = self.data_store.query_points_in_view(
+                        file.id,
+                        plot_query.x_range,
+                        plot_query.target_points,
+                    );
                     if points.is_empty() {
                         continue;
                     }
@@ -495,6 +512,21 @@ fn configured_tail_path(config: &AppConfiguration, device: DeviceId) -> Option<P
         None
     } else {
         Some(PathBuf::from(path))
+    }
+}
+
+fn build_plot_query(
+    x_range: Option<(f64, f64)>,
+    plot_width_points: Option<f32>,
+) -> PlotQuery {
+    let target_points = plot_width_points
+        .filter(|width| *width > 0.0)
+        .map(visible_point_budget)
+        .unwrap_or(SAFE_PLOT_QUERY_BUDGET);
+
+    PlotQuery {
+        x_range: x_range.map(|(start, end)| (start.min(end), start.max(end))),
+        target_points,
     }
 }
 
@@ -764,5 +796,21 @@ mod tests {
         assert_eq!(GRAPH_VIEWER_WINDOW_TITLE, "Graph Viewer");
         assert_eq!(GRAPH_VIEWER_VIEWPORT_ID, "graph_viewer");
         assert_eq!(GRAPH_VIEWER_PLOT_ID, "graph_viewer_plot");
+    }
+
+    #[test]
+    fn plot_query_uses_visible_bounds_when_available() {
+        let query = super::build_plot_query(Some((10.0, 20.0)), Some(500.0));
+
+        assert_eq!(query.x_range, Some((10.0, 20.0)));
+        assert_eq!(query.target_points, 1000);
+    }
+
+    #[test]
+    fn plot_query_falls_back_to_safe_budget_when_width_is_missing() {
+        let query = super::build_plot_query(Some((0.0, 5.0)), None);
+
+        assert_eq!(query.x_range, Some((0.0, 5.0)));
+        assert_eq!(query.target_points, 256);
     }
 }

@@ -263,6 +263,7 @@ impl CsvDataStore {
         }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn query_points(&self, source_id: ViewerSourceId, target_points: usize) -> Vec<DataPoint> {
         self.query_points_in_view(source_id, None, target_points)
     }
@@ -517,7 +518,7 @@ impl CsvDataStore {
                 }
                 let x_dist = (sample.x - x).abs();
                 let y_dist = (value - y).abs();
-                if best.map_or(true, |(bx, by, _, _)| {
+                if best.is_none_or(|(bx, by, _, _)| {
                     x_dist < bx || (x_dist == bx && y_dist < by)
                 }) {
                     best = Some((x_dist, y_dist, si, ri));
@@ -550,7 +551,7 @@ impl CsvDataStore {
                     continue;
                 }
                 let dist = (sample.x - x).abs();
-                if best.map_or(true, |(d, _, _)| dist < d) {
+                if best.is_none_or(|(d, _, _)| dist < d) {
                     best = Some((dist, si, ri));
                 }
             }

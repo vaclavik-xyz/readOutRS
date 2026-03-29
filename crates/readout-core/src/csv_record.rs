@@ -61,10 +61,10 @@ pub fn find_mode_changes(records: &[CsvRecord]) -> Vec<usize> {
     let mut changes = Vec::new();
     let mut last_mode: HashMap<&str, &str> = HashMap::new();
     for (i, rec) in records.iter().enumerate() {
-        if let Some(&prev) = last_mode.get(rec.device.as_str()) {
-            if prev != rec.mode {
-                changes.push(i);
-            }
+        if let Some(&prev) = last_mode.get(rec.device.as_str())
+            && prev != rec.mode
+        {
+            changes.push(i);
         }
         last_mode.insert(&rec.device, &rec.mode);
     }
