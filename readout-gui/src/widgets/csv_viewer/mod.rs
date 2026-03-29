@@ -5,6 +5,7 @@ mod viewer_toolbar;
 
 use self::data_store::CsvDataStore;
 use self::overlay::ModeChangeMarker;
+use chrono::{DateTime, Local};
 use readout_persistence::config::AppConfiguration;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -229,6 +230,16 @@ impl CsvViewerWindow {
             .allow_zoom(true)
             .allow_drag(self.interaction_mode == InteractionMode::Normal)
             .allow_scroll(true)
+            .x_axis_formatter(|mark, _range| format_epoch_axis(mark.value))
+            .label_formatter(|name, point| {
+                // Replace egui_plot's default "x=..., y=..." tooltip
+                let time = format_epoch_full(point.x);
+                if name.is_empty() {
+                    format!("{time}\n{:.4}", point.y)
+                } else {
+                    format!("{name}\n{time}\n{:.4}", point.y)
+                }
+            })
             .show(ui, |plot_ui| {
                 let cursor_pos = if plot_ui.response().hovered() || plot_ui.response().dragged() {
                     plot_ui.pointer_coordinate()
@@ -340,20 +351,13 @@ impl CsvViewerWindow {
             .iter()
             .filter(|file| file.visible)
             .flat_map(|file| {
-                let file_name = file
-                    .path
-                    .file_stem()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or("CSV")
-                    .to_string();
-
                 file.mode_changes.iter().filter_map(move |idx| {
                     let record = file.records.get(*idx)?;
                     let previous = file.records.get(idx.saturating_sub(1))?;
 
                     Some(ModeChangeMarker {
                         x: data_store::record_x(record, *idx),
-                        label: format!("{file_name}: {} -> {}", previous.mode, record.mode),
+                        label: format!("{} → {}", previous.mode, record.mode),
                         color: file.color,
                     })
                 })
@@ -528,6 +532,29 @@ fn export_to_csv(
     }
 
     Ok(())
+}
+
+/// Format epoch seconds for X axis tick labels. Shows HH:MM:SS for intra-day,
+/// or date + time when range spans multiple days.
+fn format_epoch_axis(epoch_secs: f64) -> String {
+    let secs = epoch_secs.floor() as i64;
+    let nanos = ((epoch_secs - secs as f64) * 1e9) as u32;
+    let Some(dt) = DateTime::from_timestamp(secs, nanos) else {
+        return format!("{epoch_secs:.0}");
+    };
+    let local: DateTime<Local> = dt.with_timezone(&Local);
+    local.format("%H:%M:%S").to_string()
+}
+
+/// Format epoch seconds for tooltips and info bar — full date + time with sub-second precision.
+fn format_epoch_full(epoch_secs: f64) -> String {
+    let secs = epoch_secs.floor() as i64;
+    let nanos = ((epoch_secs - secs as f64) * 1e9) as u32;
+    let Some(dt) = DateTime::from_timestamp(secs, nanos) else {
+        return format!("{epoch_secs:.3}");
+    };
+    let local: DateTime<Local> = dt.with_timezone(&Local);
+    local.format("%Y-%m-%d %H:%M:%S%.3f").to_string()
 }
 
 fn format_csv_value(value: Option<f64>) -> String {

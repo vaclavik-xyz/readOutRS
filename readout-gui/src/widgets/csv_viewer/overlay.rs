@@ -261,13 +261,16 @@ pub fn draw_markers(
     let y_min = bounds.min()[1];
     let y_max = bounds.max()[1];
     let y_span = (y_max - y_min).abs();
-    let mode_label_y = y_max - y_span * 0.08;
-    let user_label_y = y_max - y_span * 0.16;
+    let user_label_y = y_max - y_span * 0.08;
 
     for (idx, marker) in mode_changes.iter().enumerate() {
+        // Stagger Y position to reduce overlap when markers are close together
+        let stagger_offset = (idx % 3) as f64 * y_span * 0.05;
+        let mode_label_y = y_max - y_span * 0.04 - stagger_offset;
+
         plot_ui.vline(
             VLine::new(format!("mode_change_line_{idx}"), marker.x)
-                .color(marker.color.linear_multiply(0.85))
+                .color(marker.color.linear_multiply(0.5))
                 .style(LineStyle::dashed_dense()),
         );
         plot_ui.text(
@@ -276,8 +279,8 @@ pub fn draw_markers(
                 PlotPoint::new(marker.x, mode_label_y),
                 marker.label.clone(),
             )
-            .anchor(Align2::CENTER_TOP)
-            .color(marker.color),
+            .anchor(Align2::LEFT_BOTTOM)
+            .color(marker.color.linear_multiply(0.8)),
         );
     }
 
