@@ -14,9 +14,10 @@ use readout_core::types::{DeviceId, RuntimeEvent};
 use readout_persistence::config::AppConfiguration;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-const LIVE_POLL_INTERVAL: Duration = Duration::from_millis(200);
+const LIVE_POLL_INTERVAL: Duration = Duration::from_millis(50);
 pub const GRAPH_VIEWER_WINDOW_TITLE: &str = "Graph Viewer";
 pub const GRAPH_VIEWER_VIEWPORT_ID: &str = "graph_viewer";
 pub const GRAPH_VIEWER_PLOT_ID: &str = "graph_viewer_plot";
@@ -26,6 +27,34 @@ const SAFE_PLOT_QUERY_BUDGET: usize = 256;
 struct PlotQuery {
     x_range: Option<(f64, f64)>,
     target_points: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DialogRequestKind {
+    OpenFile,
+    AddFile,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum DialogRequest {
+    PickCsv { kind: DialogRequestKind },
+    SaveExport { selection: Option<(f64, f64)> },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum DialogOutcome {
+    PickCsv {
+        kind: DialogRequestKind,
+        path: Option<PathBuf>,
+    },
+    SaveExport {
+        selection: Option<(f64, f64)>,
+        path: Option<PathBuf>,
+    },
+}
+
+struct PendingDialog {
+    result_rx: mpsc::Receiver<DialogOutcome>,
 }
 
 pub struct GraphViewerWindow {
@@ -39,6 +68,8 @@ pub struct GraphViewerWindow {
     hovered_cursor: Option<info_bar::CursorInfo>,
     fit_next_frame: bool,
     last_error: Option<String>,
+    queued_dialog_request: Option<DialogRequest>,
+    pending_dialog: Option<PendingDialog>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -79,6 +110,8 @@ impl GraphViewerWindow {
             hovered_cursor: None,
             fit_next_frame: false,
             last_error: None,
+            queued_dialog_request: None,
+            pending_dialog: None,
         }
     }
 
@@ -101,6 +134,7 @@ impl GraphViewerWindow {
             |ctx, _class| {
                 let has_live_files = self.data_store.files().iter().any(|file| file.is_live);
                 self.handle_keyboard_shortcuts(ctx, config);
+                self.poll_dialog_outcomes(config);
 
                 if has_live_files && self.last_poll.elapsed() >= LIVE_POLL_INTERVAL {
                     self.data_store.poll_live_sources();
@@ -114,7 +148,7 @@ impl GraphViewerWindow {
                         self.interaction_mode,
                         self.following,
                     );
-                    self.handle_action(action, config);
+                    self.dispatch_action(action, config);
 
                     if let Some(error) = &self.last_error {
                         ui.colored_label(egui::Color32::from_rgb(220, 90, 90), error);
@@ -150,35 +184,6 @@ impl GraphViewerWindow {
 
     fn handle_action(&mut self, action: ViewerAction, config: &AppConfiguration) {
         match action {
-            ViewerAction::OpenFile => {
-                if let Some(path) = pick_csv_file() {
-                    match self.data_store.load_csv_file(path, true) {
-                        Ok(_) => {
-                            self.overlay = overlay::OverlayState::default();
-                            self.hovered_cursor = None;
-                            self.following = false;
-                            self.fit_next_frame = true;
-                            self.last_error = None;
-                        }
-                        Err(err) => {
-                            self.last_error = Some(format!("Failed to open CSV: {err}"));
-                        }
-                    }
-                }
-            }
-            ViewerAction::AddFile => {
-                if let Some(path) = pick_csv_file() {
-                    match self.data_store.load_csv_file(path, false) {
-                        Ok(_) => {
-                            self.fit_next_frame = true;
-                            self.last_error = None;
-                        }
-                        Err(err) => {
-                            self.last_error = Some(format!("Failed to add CSV: {err}"));
-                        }
-                    }
-                }
-            }
             ViewerAction::AttachRuntime(device) => match self.data_store.attach_runtime_device(device) {
                         Ok(_) => {
                             self.following = true;
@@ -218,22 +223,6 @@ impl GraphViewerWindow {
             ViewerAction::ZoomFit => {
                 self.fit_next_frame = true;
             }
-            ViewerAction::Export => {
-                if let Some(save_path) = rfd::FileDialog::new()
-                    .add_filter("CSV", &["csv"])
-                    .set_file_name("export.csv")
-                    .save_file()
-                {
-                    match export_to_csv(&save_path, &self.data_store, self.overlay.selection) {
-                        Ok(()) => {
-                            self.last_error = None;
-                        }
-                        Err(err) => {
-                            self.last_error = Some(format!("Export failed: {err}"));
-                        }
-                    }
-                }
-            }
             ViewerAction::ToggleFollow => {
                 self.following = !self.following;
                 self.snap_follow_next_frame = self.following;
@@ -258,6 +247,109 @@ impl GraphViewerWindow {
                 self.hovered_cursor = None;
             }
             ViewerAction::None => {}
+            ViewerAction::OpenFile | ViewerAction::AddFile | ViewerAction::Export => {}
+        }
+    }
+
+    fn dispatch_action(
+        &mut self,
+        action: ViewerAction,
+        config: &AppConfiguration,
+    ) {
+        if let Some(request) = dialog_request_for_action(action, self.overlay.selection) {
+            self.queue_dialog_request(request);
+            return;
+        }
+
+        self.handle_action(action, config);
+    }
+
+    fn queue_dialog_request(&mut self, request: DialogRequest) {
+        if self.pending_dialog.is_some() || self.queued_dialog_request.is_some() {
+            return;
+        }
+
+        self.queued_dialog_request = Some(request);
+    }
+
+    fn take_dialog_request(&mut self) -> Option<DialogRequest> {
+        self.queued_dialog_request.take()
+    }
+
+    pub(crate) fn launch_queued_dialog(&mut self, ctx: &egui::Context) {
+        let Some(request) = self.take_dialog_request() else {
+            return;
+        };
+
+        self.start_dialog_request(request, ctx);
+    }
+
+    fn start_dialog_request(&mut self, request: DialogRequest, ctx: &egui::Context) {
+        if self.pending_dialog.is_some() {
+            return;
+        }
+
+        let result_rx = spawn_dialog_request(request, ctx.clone());
+        self.pending_dialog = Some(PendingDialog { result_rx });
+    }
+
+    fn poll_dialog_outcomes(&mut self, config: &AppConfiguration) {
+        let Some(pending) = self.pending_dialog.take() else {
+            return;
+        };
+
+        match pending.result_rx.try_recv() {
+            Ok(outcome) => self.apply_dialog_outcome(outcome, config),
+            Err(mpsc::TryRecvError::Empty) => {
+                self.pending_dialog = Some(pending);
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.last_error = Some("File dialog failed before returning a result".to_string());
+            }
+        }
+    }
+
+    fn apply_dialog_outcome(&mut self, outcome: DialogOutcome, _config: &AppConfiguration) {
+        match outcome {
+            DialogOutcome::PickCsv {
+                kind: DialogRequestKind::OpenFile,
+                path: Some(path),
+            } => match self.data_store.load_csv_file(path, true) {
+                Ok(_) => {
+                    self.overlay = overlay::OverlayState::default();
+                    self.hovered_cursor = None;
+                    self.following = false;
+                    self.fit_next_frame = true;
+                    self.last_error = None;
+                }
+                Err(err) => {
+                    self.last_error = Some(format!("Failed to open CSV: {err}"));
+                }
+            },
+            DialogOutcome::PickCsv {
+                kind: DialogRequestKind::AddFile,
+                path: Some(path),
+            } => match self.data_store.load_csv_file(path, false) {
+                Ok(_) => {
+                    self.fit_next_frame = true;
+                    self.last_error = None;
+                }
+                Err(err) => {
+                    self.last_error = Some(format!("Failed to add CSV: {err}"));
+                }
+            },
+            DialogOutcome::SaveExport {
+                selection,
+                path: Some(save_path),
+            } => match export_to_csv(&save_path, &self.data_store, selection) {
+                Ok(()) => {
+                    self.last_error = None;
+                }
+                Err(err) => {
+                    self.last_error = Some(format!("Export failed: {err}"));
+                }
+            },
+            DialogOutcome::PickCsv { path: None, .. } | DialogOutcome::SaveExport { path: None, .. } => {}
         }
     }
 
@@ -446,12 +538,12 @@ impl GraphViewerWindow {
         };
 
         if ctx.input_mut(|input| input.consume_key(command_shift, egui::Key::O)) {
-            self.handle_action(ViewerAction::AddFile, config);
+            self.dispatch_action(ViewerAction::AddFile, config);
             return;
         }
 
         if ctx.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::O)) {
-            self.handle_action(ViewerAction::OpenFile, config);
+            self.dispatch_action(ViewerAction::OpenFile, config);
             return;
         }
 
@@ -502,6 +594,67 @@ impl GraphViewerWindow {
     }
 }
 
+fn dialog_request_for_action(
+    action: ViewerAction,
+    selection: Option<(f64, f64)>,
+) -> Option<DialogRequest> {
+    match action {
+        ViewerAction::OpenFile => Some(DialogRequest::PickCsv {
+            kind: DialogRequestKind::OpenFile,
+        }),
+        ViewerAction::AddFile => Some(DialogRequest::PickCsv {
+            kind: DialogRequestKind::AddFile,
+        }),
+        ViewerAction::Export => Some(DialogRequest::SaveExport { selection }),
+        _ => None,
+    }
+}
+
+fn spawn_dialog_request(
+    request: DialogRequest,
+    ctx: egui::Context,
+) -> mpsc::Receiver<DialogOutcome> {
+    let (result_tx, result_rx) = mpsc::channel();
+
+    match request {
+        DialogRequest::PickCsv { kind } => {
+            let file_future = rfd::AsyncFileDialog::new()
+                .add_filter("CSV", &["csv"])
+                .pick_file();
+            std::thread::spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("dialog runtime");
+                let path = runtime
+                    .block_on(file_future)
+                    .map(|file| file.path().to_path_buf());
+                let _ = result_tx.send(DialogOutcome::PickCsv { kind, path });
+                ctx.request_repaint();
+            });
+        }
+        DialogRequest::SaveExport { selection } => {
+            let file_future = rfd::AsyncFileDialog::new()
+                .add_filter("CSV", &["csv"])
+                .set_file_name("export.csv")
+                .save_file();
+            std::thread::spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("dialog runtime");
+                let path = runtime
+                    .block_on(file_future)
+                    .map(|file| file.path().to_path_buf());
+                let _ = result_tx.send(DialogOutcome::SaveExport { selection, path });
+                ctx.request_repaint();
+            });
+        }
+    }
+
+    result_rx
+}
+
 fn configured_tail_path(config: &AppConfiguration, device: DeviceId) -> Option<PathBuf> {
     let path = match device {
         DeviceId::Multimeter => &config.multimeter_csv_log_file_path,
@@ -528,12 +681,6 @@ fn build_plot_query(
         x_range: x_range.map(|(start, end)| (start.min(end), start.max(end))),
         target_points,
     }
-}
-
-fn pick_csv_file() -> Option<PathBuf> {
-    rfd::FileDialog::new()
-        .add_filter("CSV", &["csv"])
-        .pick_file()
 }
 
 fn should_detach_follow(ui: &egui::Ui, response: &egui::Response, allow_drag_detach: bool) -> bool {
@@ -642,6 +789,7 @@ fn format_csv_value(value: Option<f64>) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
+        DialogOutcome, DialogRequest, DialogRequestKind,
         CsvDataStore, GRAPH_VIEWER_PLOT_ID, GRAPH_VIEWER_VIEWPORT_ID, GRAPH_VIEWER_WINDOW_TITLE,
         GraphViewerWindow, ViewerAction, export_to_csv, format_csv_value,
     };
@@ -812,5 +960,92 @@ mod tests {
 
         assert_eq!(query.x_range, Some((0.0, 5.0)));
         assert_eq!(query.target_points, 256);
+    }
+
+    #[test]
+    fn live_poll_interval_targets_50ms_updates() {
+        assert_eq!(super::LIVE_POLL_INTERVAL, Duration::from_millis(50));
+    }
+
+    #[test]
+    fn add_file_action_maps_to_async_csv_dialog_request() {
+        let request = super::dialog_request_for_action(ViewerAction::AddFile, None);
+
+        assert_eq!(
+            request,
+            Some(DialogRequest::PickCsv {
+                kind: DialogRequestKind::AddFile,
+            })
+        );
+    }
+
+    #[test]
+    fn queued_dialog_request_is_exposed_for_app_level_dispatch() {
+        let mut viewer = GraphViewerWindow::new();
+        let request = DialogRequest::PickCsv {
+            kind: DialogRequestKind::AddFile,
+        };
+
+        viewer.queue_dialog_request(request.clone());
+
+        assert!(viewer.pending_dialog.is_none());
+        assert_eq!(viewer.take_dialog_request(), Some(request));
+        assert_eq!(viewer.take_dialog_request(), None);
+    }
+
+    #[test]
+    fn applying_add_file_dialog_outcome_loads_csv_without_clearing_existing_sources() {
+        let existing_path = std::env::temp_dir().join(format!(
+            "readout_graph_viewer_existing_{}_{}.csv",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time before epoch")
+                .as_nanos()
+        ));
+        let added_path = std::env::temp_dir().join(format!(
+            "readout_graph_viewer_added_{}_{}.csv",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time before epoch")
+                .as_nanos()
+        ));
+
+        fs::write(
+            &existing_path,
+            concat!(
+                "timestamp,device,value,unit,mode,is_overload,is_open,is_short\n",
+                "2026-03-29T10:00:00Z,Multimeter,1.25,V,DCV,false,false,false\n"
+            ),
+        )
+        .expect("write existing csv");
+        fs::write(
+            &added_path,
+            concat!(
+                "timestamp,device,value,unit,mode,is_overload,is_open,is_short\n",
+                "2026-03-29T10:00:01Z,USB-C,5.00,V,DCV,false,false,false\n"
+            ),
+        )
+        .expect("write added csv");
+
+        let config = AppConfiguration::default();
+        let mut viewer = GraphViewerWindow::new();
+        viewer
+            .data_store
+            .load_csv_file(existing_path.clone(), true)
+            .expect("load existing csv");
+
+        let outcome = DialogOutcome::PickCsv {
+            kind: DialogRequestKind::AddFile,
+            path: Some(added_path.clone()),
+        };
+        viewer.apply_dialog_outcome(outcome, &config);
+
+        assert_eq!(viewer.data_store.file_count(), 2);
+        assert!(viewer.last_error.is_none());
+
+        fs::remove_file(&existing_path).expect("remove existing csv");
+        fs::remove_file(&added_path).expect("remove added csv");
     }
 }

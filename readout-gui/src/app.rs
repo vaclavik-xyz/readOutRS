@@ -5,7 +5,11 @@ use readout_io::runtime::Runtime;
 use readout_persistence::config::AppConfiguration;
 use readout_persistence::config_store;
 use std::path::PathBuf;
+use std::time::Duration;
 use tokio_util::sync::CancellationToken;
+
+const RUNTIME_REPAINT_INTERVAL: Duration = Duration::from_millis(50);
+const APP_REPAINT_INTERVAL: Duration = Duration::from_millis(50);
 
 struct RuntimeHandle {
     event_rx: std::sync::mpsc::Receiver<RuntimeEvent>,
@@ -85,7 +89,6 @@ impl RuntimeHandle {
                 };
 
                 let mut last_repaint = std::time::Instant::now();
-                let repaint_interval = std::time::Duration::from_millis(200);
                 loop {
                     tokio::select! {
                         _ = cancel_clone.cancelled() => break,
@@ -115,7 +118,7 @@ impl RuntimeHandle {
                                     }
                                     let _ = std_tx.send(event);
                                     let now = std::time::Instant::now();
-                                    if now.duration_since(last_repaint) >= repaint_interval {
+                                    if now.duration_since(last_repaint) >= RUNTIME_REPAINT_INTERVAL {
                                         ctx_clone.request_repaint();
                                         last_repaint = now;
                                     }
@@ -534,6 +537,7 @@ impl eframe::App for ReadOutApp {
         }
 
         self.graph_viewer.show(ctx, &self.config);
+        self.graph_viewer.launch_queued_dialog(ctx);
 
         // --- Main content ---
         let mut toolbar_action = widgets::toolbar::ToolbarAction::None;
@@ -741,7 +745,7 @@ impl eframe::App for ReadOutApp {
             widgets::device_section::SectionAction::None => {}
         }
 
-        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        ctx.request_repaint_after(APP_REPAINT_INTERVAL);
     }
 }
 
@@ -749,12 +753,19 @@ impl eframe::App for ReadOutApp {
 mod tests {
     use super::*;
     use crate::widgets::toolbar::RANGE_OPTIONS;
+    use std::time::Duration;
 
     #[test]
     fn initial_window_size_dimensions() {
         let [w, h] = initial_window_size();
         assert_eq!(w, WINDOW_WIDTH);
         assert_eq!(h, WINDOW_HEIGHT_BOTH);
+    }
+
+    #[test]
+    fn live_dashboard_repaint_intervals_stay_under_one_sample_period() {
+        assert_eq!(RUNTIME_REPAINT_INTERVAL, Duration::from_millis(50));
+        assert_eq!(APP_REPAINT_INTERVAL, Duration::from_millis(50));
     }
 
     #[test]
