@@ -1,5 +1,5 @@
-use readout_core::csv_record::{find_mode_changes, parse_csv_file, parse_row, CsvRecord};
-use readout_core::downsampling::{min_max_downsample, DataPoint};
+use readout_core::csv_record::{CsvRecord, find_mode_changes, parse_csv_file, parse_row};
+use readout_core::downsampling::{DataPoint, min_max_downsample};
 use std::collections::HashSet;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::PathBuf;
@@ -15,6 +15,16 @@ const COLORS: &[[u8; 3]] = &[
     [168, 120, 255],
 ];
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct HoveredRecord {
+    pub series: String,
+    pub x: f64,
+    pub timestamp: String,
+    pub value: f64,
+    pub unit: String,
+    pub mode: String,
+}
+
 pub struct LoadedFile {
     pub path: PathBuf,
     pub records: Vec<CsvRecord>,
@@ -23,6 +33,7 @@ pub struct LoadedFile {
     pub color: egui::Color32,
     pub modes: Vec<String>,
     pub visible_modes: HashSet<String>,
+    mode_filter_initialized: bool,
     pub last_read_pos: u64,
     pub is_live: bool,
 }
@@ -54,6 +65,7 @@ impl CsvDataStore {
             color,
             modes: Vec::new(),
             visible_modes: HashSet::new(),
+            mode_filter_initialized: false,
             last_read_pos,
             is_live,
         };
@@ -71,6 +83,8 @@ impl CsvDataStore {
                 continue;
             }
 
+            // CSV Viewer tails local append-only files once per second. If we ever need to support
+            // remote or slow volumes, this should move off the UI thread.
             let Ok(mut handle) = std::fs::File::open(&file.path) else {
                 continue;
             };
@@ -84,7 +98,6 @@ impl CsvDataStore {
                 file.records.clear();
                 file.mode_changes.clear();
                 file.modes.clear();
-                file.visible_modes.clear();
             }
 
             if file_len <= file.last_read_pos {
@@ -138,9 +151,12 @@ impl CsvDataStore {
             .enumerate()
             .filter(|(_, record)| file.visible_modes.contains(&record.mode))
             .filter_map(|(idx, record)| {
-                record
-                    .value
-                    .map(|value| (Duration::from_secs(idx as u64), value))
+                record.value.map(|value| {
+                    (
+                        Duration::from_secs_f64(record_x(record, idx).max(0.0)),
+                        value,
+                    )
+                })
             })
             .collect();
 
@@ -149,6 +165,121 @@ impl CsvDataStore {
 
     pub fn files(&self) -> &[LoadedFile] {
         &self.files
+    }
+
+    pub fn all_modes(&self) -> Vec<String> {
+        let mut modes: Vec<String> = self
+            .files
+            .iter()
+            .flat_map(|file| file.modes.iter().cloned())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        modes.sort();
+        modes
+    }
+
+    pub fn is_mode_visible(&self, mode: &str) -> bool {
+        let mut matched = false;
+
+        for file in &self.files {
+            if file.modes.iter().any(|file_mode| file_mode == mode) {
+                matched = true;
+                if !file.visible_modes.contains(mode) {
+                    return false;
+                }
+            }
+        }
+
+        matched
+    }
+
+    pub fn set_mode_visible(&mut self, mode: &str, visible: bool) {
+        for file in &mut self.files {
+            if !file.modes.iter().any(|file_mode| file_mode == mode) {
+                continue;
+            }
+
+            file.mode_filter_initialized = true;
+
+            if visible {
+                file.visible_modes.insert(mode.to_owned());
+            } else {
+                file.visible_modes.remove(mode);
+            }
+        }
+    }
+
+    pub fn visible_values_in_range(&self, x_min: f64, x_max: f64) -> Vec<f64> {
+        let x_start = x_min.min(x_max);
+        let x_end = x_min.max(x_max);
+
+        self.files
+            .iter()
+            .filter(|file| file.visible)
+            .flat_map(|file| {
+                file.records
+                    .iter()
+                    .enumerate()
+                    .filter(move |(idx, record)| {
+                        let x = record_x(record, *idx);
+                        x >= x_start && x <= x_end && file.visible_modes.contains(&record.mode)
+                    })
+                    .filter_map(|(_, record)| record.value)
+            })
+            .collect()
+    }
+
+    pub fn latest_live_x(&self) -> Option<f64> {
+        self.files
+            .iter()
+            .filter(|file| file.visible && file.is_live)
+            .flat_map(|file| {
+                file.records
+                    .iter()
+                    .enumerate()
+                    .rev()
+                    .filter(|(_, record)| file.visible_modes.contains(&record.mode))
+                    .filter_map(|(idx, record)| record.value.map(|_| record_x(record, idx)))
+                    .next()
+            })
+            .max_by(|left, right| left.total_cmp(right))
+    }
+
+    pub fn nearest_visible_record(&self, x: f64) -> Option<HoveredRecord> {
+        self.files
+            .iter()
+            .filter(|file| file.visible)
+            .flat_map(|file| {
+                let series = file
+                    .path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("CSV")
+                    .to_string();
+
+                file.records
+                    .iter()
+                    .enumerate()
+                    .filter(move |(_, record)| file.visible_modes.contains(&record.mode))
+                    .filter_map(move |(idx, record)| {
+                        let value = record.value?;
+                        let record_x = record_x(record, idx);
+                        Some((
+                            (record_x - x).abs(),
+                            HoveredRecord {
+                                series: series.clone(),
+                                x: record_x,
+                                timestamp: record.timestamp.clone(),
+                                value,
+                                unit: record.unit.clone(),
+                                mode: record.mode.clone(),
+                            },
+                        ))
+                    })
+            })
+            .min_by(|(left_dist, _), (right_dist, _)| left_dist.total_cmp(right_dist))
+            .map(|(_, record)| record)
     }
 
     #[allow(dead_code)]
@@ -205,7 +336,7 @@ fn refresh_file_metadata(file: &mut LoadedFile) {
     file.modes = modes.clone();
     let available_modes: HashSet<String> = modes.iter().cloned().collect();
 
-    let selected_modes: HashSet<String> = if file.visible_modes.is_empty() {
+    let selected_modes: HashSet<String> = if !file.mode_filter_initialized {
         modes.iter().cloned().collect()
     } else {
         file.visible_modes
@@ -214,11 +345,11 @@ fn refresh_file_metadata(file: &mut LoadedFile) {
             .collect()
     };
 
-    file.visible_modes = if selected_modes.is_empty() {
-        modes.into_iter().collect()
-    } else {
-        selected_modes
-    };
+    file.visible_modes = selected_modes;
+}
+
+pub(super) fn record_x(record: &CsvRecord, idx: usize) -> f64 {
+    record.parsed_time.unwrap_or(idx as f64)
 }
 
 #[cfg(test)]
@@ -238,6 +369,7 @@ mod tests {
             records: vec![
                 CsvRecord {
                     timestamp: "2026-03-29T10:00:00Z".to_string(),
+                    parsed_time: Some(10.0),
                     device: "Multimeter".to_string(),
                     value: Some(1.25),
                     unit: "V".to_string(),
@@ -248,6 +380,7 @@ mod tests {
                 },
                 CsvRecord {
                     timestamp: "2026-03-29T10:00:01Z".to_string(),
+                    parsed_time: Some(20.0),
                     device: "Multimeter".to_string(),
                     value: None,
                     unit: "V".to_string(),
@@ -258,6 +391,7 @@ mod tests {
                 },
                 CsvRecord {
                     timestamp: "2026-03-29T10:00:02Z".to_string(),
+                    parsed_time: Some(30.0),
                     device: "Multimeter".to_string(),
                     value: Some(2.5),
                     unit: "V".to_string(),
@@ -272,6 +406,7 @@ mod tests {
             color: egui::Color32::WHITE,
             modes: vec!["DCV".to_string()],
             visible_modes: std::iter::once("DCV".to_string()).collect(),
+            mode_filter_initialized: true,
             last_read_pos: 0,
             is_live: false,
         });
@@ -281,10 +416,59 @@ mod tests {
         assert_eq!(
             points,
             vec![
-                (Duration::from_secs(0), 1.25),
-                (Duration::from_secs(2), 2.5),
+                (Duration::from_secs(10), 1.25),
+                (Duration::from_secs(30), 2.5),
             ]
         );
+    }
+
+    #[test]
+    fn nearest_visible_record_uses_time_axis_and_mode_filter() {
+        let mut store = CsvDataStore::new();
+        store.files.push(LoadedFile {
+            path: PathBuf::from("sample.csv"),
+            records: vec![
+                CsvRecord {
+                    timestamp: "2026-03-29T10:00:00Z".to_string(),
+                    parsed_time: Some(100.0),
+                    device: "Multimeter".to_string(),
+                    value: Some(1.25),
+                    unit: "V".to_string(),
+                    mode: "DCV".to_string(),
+                    is_overload: false,
+                    is_open: false,
+                    is_short: false,
+                },
+                CsvRecord {
+                    timestamp: "2026-03-29T10:00:01Z".to_string(),
+                    parsed_time: Some(101.0),
+                    device: "Multimeter".to_string(),
+                    value: Some(2.5),
+                    unit: "V".to_string(),
+                    mode: "ACV".to_string(),
+                    is_overload: false,
+                    is_open: false,
+                    is_short: false,
+                },
+            ],
+            mode_changes: Vec::new(),
+            visible: true,
+            color: egui::Color32::WHITE,
+            modes: vec!["ACV".to_string(), "DCV".to_string()],
+            visible_modes: std::iter::once("DCV".to_string()).collect(),
+            mode_filter_initialized: true,
+            last_read_pos: 0,
+            is_live: false,
+        });
+
+        let hovered = store
+            .nearest_visible_record(100.8)
+            .expect("nearest visible record");
+
+        assert_eq!(hovered.series, "sample.csv");
+        assert_eq!(hovered.timestamp, "2026-03-29T10:00:00Z");
+        assert_eq!(hovered.value, 1.25);
+        assert_eq!(hovered.mode, "DCV");
     }
 
     #[test]
@@ -315,6 +499,9 @@ mod tests {
 
         assert_eq!(store.files()[0].records.len(), 1);
         assert_eq!(store.files()[0].records[0].value, Some(1.25));
+        let first_time = store.files()[0].records[0]
+            .parsed_time
+            .expect("first parsed timestamp");
 
         {
             let mut file = OpenOptions::new()
@@ -328,6 +515,10 @@ mod tests {
 
         assert_eq!(store.files()[0].records.len(), 2);
         assert_eq!(store.files()[0].records[1].value, Some(2.5));
+        let second_time = store.files()[0].records[1]
+            .parsed_time
+            .expect("second parsed timestamp");
+        assert!((second_time - first_time - 1.0).abs() < 1e-9);
 
         fs::remove_file(&path).expect("remove temp csv");
     }

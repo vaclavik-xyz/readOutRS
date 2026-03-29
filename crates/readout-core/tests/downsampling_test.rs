@@ -1,4 +1,4 @@
-use readout_core::downsampling::{average_downsample, min_max_downsample, DataPoint};
+use readout_core::downsampling::{DataPoint, average_downsample, min_max_downsample};
 use std::time::Duration;
 
 fn point(seconds: u64, value: f64) -> DataPoint {

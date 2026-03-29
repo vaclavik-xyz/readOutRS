@@ -1,8 +1,10 @@
+use chrono::DateTime;
 use std::io::BufRead;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CsvRecord {
     pub timestamp: String,
+    pub parsed_time: Option<f64>,
     pub device: String,
     pub value: Option<f64>,
     pub unit: String,
@@ -43,6 +45,7 @@ pub fn parse_row(line: &str) -> Option<CsvRecord> {
 
     Some(CsvRecord {
         timestamp: fields[0].to_string(),
+        parsed_time: parse_timestamp(fields[0]),
         device: fields[1].to_string(),
         value,
         unit: fields[3].to_string(),
@@ -73,4 +76,9 @@ fn parse_value(raw: &str) -> Option<Option<f64>> {
 
 fn parse_bool(raw: &str) -> Option<bool> {
     raw.trim().parse().ok()
+}
+
+fn parse_timestamp(raw: &str) -> Option<f64> {
+    let timestamp = DateTime::parse_from_rfc3339(raw).ok()?;
+    Some(timestamp.timestamp() as f64 + f64::from(timestamp.timestamp_subsec_nanos()) / 1e9)
 }

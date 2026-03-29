@@ -283,7 +283,9 @@ impl ReadOutApp {
     ) {
         let old_config = self.config.clone();
         let changed = match action {
-            widgets::device_section::DeviceRecordingAction::ToggleCsvLogging(DeviceId::Multimeter) => {
+            widgets::device_section::DeviceRecordingAction::ToggleCsvLogging(
+                DeviceId::Multimeter,
+            ) => {
                 self.config.multimeter_csv_logging_enabled =
                     !self.config.multimeter_csv_logging_enabled;
                 true
@@ -292,7 +294,9 @@ impl ReadOutApp {
                 self.config.usbc_csv_logging_enabled = !self.config.usbc_csv_logging_enabled;
                 true
             }
-            widgets::device_section::DeviceRecordingAction::ToggleObsOutput(DeviceId::Multimeter) => {
+            widgets::device_section::DeviceRecordingAction::ToggleObsOutput(
+                DeviceId::Multimeter,
+            ) => {
                 self.config.multimeter_obs_enabled = !self.config.multimeter_obs_enabled;
                 true
             }
@@ -348,8 +352,8 @@ impl Drop for ReadOutApp {
 fn runtime_settings_changed(old: &AppConfiguration, new: &AppConfiguration) -> bool {
     let multimeter_obs_path_changed = old.multimeter_output_file != new.multimeter_output_file
         && (old.multimeter_obs_enabled || new.multimeter_obs_enabled);
-    let usbc_obs_path_changed =
-        old.usbc_output_file != new.usbc_output_file && (old.usbc_obs_enabled || new.usbc_obs_enabled);
+    let usbc_obs_path_changed = old.usbc_output_file != new.usbc_output_file
+        && (old.usbc_obs_enabled || new.usbc_obs_enabled);
 
     old.multimeter_port != new.multimeter_port
         || old.usbc_port != new.usbc_port
@@ -568,8 +572,7 @@ impl eframe::App for ReadOutApp {
                         .unwrap_or(AlarmState::None);
                     let mm_pipeline = self.state.chart_pipelines.get_mut(&DeviceId::Multimeter);
                     let mm_csv_configured = !self.config.multimeter_csv_log_file_path.is_empty();
-                    let mm_csv = self.config.multimeter_csv_logging_enabled
-                        && mm_csv_configured;
+                    let mm_csv = self.config.multimeter_csv_logging_enabled && mm_csv_configured;
                     let mm_obs_configured = !self.config.multimeter_output_file.is_empty();
                     let mm_obs = self.config.multimeter_obs_enabled && mm_obs_configured;
                     let (_, ta, recording_action) = widgets::device_section::show(
@@ -615,8 +618,7 @@ impl eframe::App for ReadOutApp {
                         .unwrap_or(AlarmState::None);
                     let usbc_pipeline = self.state.usbc_chart_pipelines.get_mut(&self.usbc_metric);
                     let usbc_csv_configured = !self.config.usbc_csv_log_file_path.is_empty();
-                    let usbc_csv = self.config.usbc_csv_logging_enabled
-                        && usbc_csv_configured;
+                    let usbc_csv = self.config.usbc_csv_logging_enabled && usbc_csv_configured;
                     let usbc_obs_configured = !self.config.usbc_output_file.is_empty();
                     let usbc_obs = self.config.usbc_obs_enabled && usbc_obs_configured;
                     let (sa, _, recording_action) = widgets::device_section::show(

@@ -9,11 +9,12 @@ fn parse(csv: &str) -> Vec<readout_core::csv_record::CsvRecord> {
 fn parse_single_row() {
     let records = parse(
         "timestamp,device,value,unit,mode,is_overload,is_open,is_short\n\
-2026-03-29T10:30:00.123,Multimeter,12.345,V DC,DCV,false,false,false\n",
+2026-03-29T10:30:00.123Z,Multimeter,12.345,V DC,DCV,false,false,false\n",
     );
 
     assert_eq!(records.len(), 1);
-    assert_eq!(records[0].timestamp, "2026-03-29T10:30:00.123");
+    assert_eq!(records[0].timestamp, "2026-03-29T10:30:00.123Z");
+    assert!(records[0].parsed_time.is_some());
     assert_eq!(records[0].device, "Multimeter");
     assert_eq!(records[0].value, Some(12.345));
     assert_eq!(records[0].unit, "V DC");
@@ -83,11 +84,11 @@ fn mode_change_indices_detected() {
 fn parse_preserves_overload_row() {
     let records = parse(
         "timestamp,device,value,unit,mode,is_overload,is_open,is_short\n\
-2026-03-29T10:30:00.123,Multimeter,OL,V DC,DCV,true,false,false\n",
+2026-03-29T10:30:00.123Z,Multimeter,OL,V DC,DCV,true,false,false\n",
     );
 
     assert_eq!(records.len(), 1);
-    assert_eq!(records[0].timestamp, "2026-03-29T10:30:00.123");
+    assert_eq!(records[0].timestamp, "2026-03-29T10:30:00.123Z");
     assert_eq!(records[0].device, "Multimeter");
     assert_eq!(records[0].value, None);
     assert_eq!(records[0].unit, "V DC");
@@ -101,12 +102,12 @@ fn parse_preserves_overload_row() {
 fn parse_skips_invalid_numeric_token() {
     let records = parse(
         "timestamp,device,value,unit,mode,is_overload,is_open,is_short\n\
-2026-03-29T10:30:00.123,Multimeter,abc,V DC,DCV,false,false,false\n\
-2026-03-29T10:30:01.123,Multimeter,12.345,V DC,DCV,false,false,false\n",
+2026-03-29T10:30:00.123Z,Multimeter,abc,V DC,DCV,false,false,false\n\
+2026-03-29T10:30:01.123Z,Multimeter,12.345,V DC,DCV,false,false,false\n",
     );
 
     assert_eq!(records.len(), 1);
-    assert_eq!(records[0].timestamp, "2026-03-29T10:30:01.123");
+    assert_eq!(records[0].timestamp, "2026-03-29T10:30:01.123Z");
     assert_eq!(records[0].value, Some(12.345));
 }
 
@@ -114,12 +115,12 @@ fn parse_skips_invalid_numeric_token() {
 fn parse_skips_invalid_bool_token() {
     let records = parse(
         "timestamp,device,value,unit,mode,is_overload,is_open,is_short\n\
-2026-03-29T10:30:00.123,Multimeter,12.345,V DC,DCV,maybe,false,false\n\
-2026-03-29T10:30:01.123,Multimeter,12.345,V DC,DCV,false,false,false\n",
+2026-03-29T10:30:00.123Z,Multimeter,12.345,V DC,DCV,maybe,false,false\n\
+2026-03-29T10:30:01.123Z,Multimeter,12.345,V DC,DCV,false,false,false\n",
     );
 
     assert_eq!(records.len(), 1);
-    assert_eq!(records[0].timestamp, "2026-03-29T10:30:01.123");
+    assert_eq!(records[0].timestamp, "2026-03-29T10:30:01.123Z");
     assert_eq!(records[0].is_overload, false);
     assert_eq!(records[0].value, Some(12.345));
 }
@@ -128,14 +129,14 @@ fn parse_skips_invalid_bool_token() {
 fn parse_rejects_non_exact_ol_token() {
     let records = parse(
         "timestamp,device,value,unit,mode,is_overload,is_open,is_short\n\
-2026-03-29T10:30:00.123,Multimeter,ol,V DC,DCV,true,false,false\n\
-2026-03-29T10:30:00.223,Multimeter,Ol,V DC,DCV,true,false,false\n\
-2026-03-29T10:30:00.323,Multimeter,oL,V DC,DCV,true,false,false\n\
-2026-03-29T10:30:01.123,Multimeter,OL,V DC,DCV,true,false,false\n",
+2026-03-29T10:30:00.123Z,Multimeter,ol,V DC,DCV,true,false,false\n\
+2026-03-29T10:30:00.223Z,Multimeter,Ol,V DC,DCV,true,false,false\n\
+2026-03-29T10:30:00.323Z,Multimeter,oL,V DC,DCV,true,false,false\n\
+2026-03-29T10:30:01.123Z,Multimeter,OL,V DC,DCV,true,false,false\n",
     );
 
     assert_eq!(records.len(), 1);
-    assert_eq!(records[0].timestamp, "2026-03-29T10:30:01.123");
+    assert_eq!(records[0].timestamp, "2026-03-29T10:30:01.123Z");
     assert_eq!(records[0].value, None);
     assert!(records[0].is_overload);
 }
@@ -144,13 +145,37 @@ fn parse_rejects_non_exact_ol_token() {
 fn parse_rejects_whitespace_padded_ol_token() {
     let records = parse(
         "timestamp,device,value,unit,mode,is_overload,is_open,is_short\n\
-2026-03-29T10:30:00.123,Multimeter, OL ,V DC,DCV,true,false,false\n\
-2026-03-29T10:30:01.123,Multimeter,OL\t,V DC,DCV,true,false,false\n\
-2026-03-29T10:30:02.123,Multimeter,OL,V DC,DCV,true,false,false\n",
+2026-03-29T10:30:00.123Z,Multimeter, OL ,V DC,DCV,true,false,false\n\
+2026-03-29T10:30:01.123Z,Multimeter,OL\t,V DC,DCV,true,false,false\n\
+2026-03-29T10:30:02.123Z,Multimeter,OL,V DC,DCV,true,false,false\n",
     );
 
     assert_eq!(records.len(), 1);
-    assert_eq!(records[0].timestamp, "2026-03-29T10:30:02.123");
+    assert_eq!(records[0].timestamp, "2026-03-29T10:30:02.123Z");
     assert_eq!(records[0].value, None);
     assert!(records[0].is_overload);
+}
+
+#[test]
+fn parse_rfc3339_timestamps_into_numeric_seconds() {
+    let records = parse(
+        "timestamp,device,value,unit,mode,is_overload,is_open,is_short\n\
+2026-03-29T10:30:00Z,Multimeter,12.345,V DC,DCV,false,false,false\n\
+2026-03-29T10:30:01.500+00:00,Multimeter,12.346,V DC,DCV,false,false,false\n",
+    );
+
+    let first = records[0].parsed_time.expect("first timestamp parsed");
+    let second = records[1].parsed_time.expect("second timestamp parsed");
+
+    assert!((second - first - 1.5).abs() < 1e-9);
+}
+
+#[test]
+fn parse_non_rfc3339_timestamp_leaves_numeric_time_empty() {
+    let records = parse(
+        "timestamp,device,value,unit,mode,is_overload,is_open,is_short\n\
+2026-03-29T10:30:00,Multimeter,12.345,V DC,DCV,false,false,false\n",
+    );
+
+    assert_eq!(records[0].parsed_time, None);
 }

@@ -5,7 +5,7 @@ use egui_phosphor::regular as icons;
 
 pub fn show(
     ui: &mut egui::Ui,
-    data_store: &CsvDataStore,
+    data_store: &mut CsvDataStore,
     current_mode: InteractionMode,
     following: bool,
 ) -> ViewerAction {
@@ -50,6 +50,21 @@ pub fn show(
             action = next_action;
         }
 
+        ui.menu_button("Modes", |ui| {
+            let modes = data_store.all_modes();
+            if modes.is_empty() {
+                ui.label(RichText::new("No modes loaded").small().weak());
+                return;
+            }
+
+            for mode in modes {
+                let mut visible = data_store.is_mode_visible(&mode);
+                if ui.checkbox(&mut visible, mode.as_str()).changed() {
+                    data_store.set_mode_visible(&mode, visible);
+                }
+            }
+        });
+
         ui.separator();
 
         if ui
@@ -62,26 +77,45 @@ pub fn show(
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if data_store.files().iter().any(|file| file.is_live) {
                 let (label, color) = if following {
-                    ("LIVE", egui::Color32::from_rgb(110, 210, 140))
+                    ("Live · Following", egui::Color32::from_rgb(110, 210, 140))
                 } else {
-                    ("PAUSED", egui::Color32::from_rgb(240, 190, 90))
+                    ("Live · Paused", egui::Color32::from_rgb(240, 190, 90))
                 };
                 if ui
                     .button(RichText::new(label).small().color(color))
-                    .on_hover_text("Toggle live polling")
+                    .on_hover_text("Toggle auto-follow")
                     .clicked()
                 {
                     action = ViewerAction::ToggleFollow;
                 }
             }
 
-            for file in data_store.files().iter().rev() {
+            for (file_idx, file) in data_store.files().iter().enumerate().rev() {
                 let name = file
                     .path
                     .file_name()
                     .and_then(|name| name.to_str())
                     .unwrap_or("CSV");
-                ui.label(RichText::new(format!("● {name}")).small().color(file.color));
+
+                let response = ui
+                    .selectable_label(
+                        file.visible,
+                        RichText::new(format!("● {name}")).small().color(file.color),
+                    )
+                    .on_hover_text(if file.visible {
+                        "Hide series"
+                    } else {
+                        "Show series"
+                    });
+                if response.clicked() {
+                    action = ViewerAction::ToggleFileVisibility(file_idx);
+                }
+                response.context_menu(|ui| {
+                    if ui.button("Remove").clicked() {
+                        action = ViewerAction::RemoveFile(file_idx);
+                        ui.close();
+                    }
+                });
             }
         });
     });
@@ -95,7 +129,10 @@ fn action_from_mode_button(
     target_mode: InteractionMode,
     label: &str,
 ) -> Option<ViewerAction> {
-    if ui.selectable_label(current_mode == target_mode, label).clicked() {
+    if ui
+        .selectable_label(current_mode == target_mode, label)
+        .clicked()
+    {
         Some(ViewerAction::SetMode(if current_mode == target_mode {
             InteractionMode::Normal
         } else {

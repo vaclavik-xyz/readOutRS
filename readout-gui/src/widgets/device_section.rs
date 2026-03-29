@@ -37,7 +37,11 @@ pub fn show(
     csv_active: bool,
     obs_configured: bool,
     obs_active: bool,
-) -> (SectionAction, super::toolbar::ToolbarAction, DeviceRecordingAction) {
+) -> (
+    SectionAction,
+    super::toolbar::ToolbarAction,
+    DeviceRecordingAction,
+) {
     let mut action = SectionAction::None;
     let mut toolbar_action = super::toolbar::ToolbarAction::None;
     let mut recording_action = DeviceRecordingAction::None;

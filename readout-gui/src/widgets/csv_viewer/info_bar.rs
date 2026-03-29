@@ -1,7 +1,9 @@
 pub struct CursorInfo {
+    pub series: String,
     pub value: f64,
     pub unit: String,
     pub timestamp: String,
+    pub mode: String,
 }
 
 pub struct SelectionStats {
@@ -27,8 +29,8 @@ pub fn show(
             Some(cursor) => {
                 ui.label(
                     egui::RichText::new(format!(
-                        "Cursor {:.4} {} @ {}",
-                        cursor.value, cursor.unit, cursor.timestamp
+                        "{} {:.4} {} @ {} [{}]",
+                        cursor.series, cursor.value, cursor.unit, cursor.timestamp, cursor.mode
                     ))
                     .small(),
                 );
@@ -51,7 +53,7 @@ pub fn show(
                 );
             }
             None => {
-                ui.label(egui::RichText::new("Selection stats pending").small().weak());
+                ui.label(egui::RichText::new("Selection -").small().weak());
             }
         }
 
@@ -60,11 +62,11 @@ pub fn show(
         match delta {
             Some(delta) => {
                 ui.label(
-                    egui::RichText::new(format!("Δt {}  Δv {:.4}", delta.dt, delta.dv)).small(),
+                    egui::RichText::new(format!("Δt {}  Δv {:+.4}", delta.dt, delta.dv)).small(),
                 );
             }
             None => {
-                ui.label(egui::RichText::new("Delta -").small().weak());
+                ui.label(egui::RichText::new("Measure -").small().weak());
             }
         }
     });

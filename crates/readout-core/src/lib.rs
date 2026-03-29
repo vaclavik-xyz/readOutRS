@@ -1,6 +1,6 @@
 pub mod alerts;
-pub mod csv_record;
 pub mod chart_pipeline;
+pub mod csv_record;
 pub mod dashboard_state;
 pub mod downsampling;
 pub mod energy_accumulator;
