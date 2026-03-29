@@ -1,9 +1,10 @@
 use super::source_model::{
     SourceStatus, ViewerSample, ViewerSourceId, ViewerSourceKind, XDomain,
 };
+use super::render_sampling::downsample_visible_points;
 use chrono::{TimeZone, Utc};
 use readout_core::csv_record::{CsvRecord, find_mode_changes, parse_csv_file, parse_row};
-use readout_core::downsampling::{DataPoint, min_max_downsample};
+use readout_core::downsampling::DataPoint;
 use readout_core::types::{ConnectionState, DeviceId, DeviceMeasurement, RuntimeEvent};
 use std::collections::HashSet;
 use std::error::Error as StdError;
@@ -263,14 +264,29 @@ impl CsvDataStore {
     }
 
     pub fn query_points(&self, source_id: ViewerSourceId, target_points: usize) -> Vec<DataPoint> {
+        self.query_points_in_view(source_id, None, target_points)
+    }
+
+    pub fn query_points_in_view(
+        &self,
+        source_id: ViewerSourceId,
+        x_range: Option<(f64, f64)>,
+        target_points: usize,
+    ) -> Vec<DataPoint> {
         let Some(source) = self.source_by_id(source_id) else {
             return Vec::new();
         };
 
+        let normalized_x_range = x_range.map(|(start, end)| (start.min(end), start.max(end)));
         let points: Vec<DataPoint> = source
             .samples
             .iter()
             .filter(|sample| source.visible_modes.contains(&sample.mode))
+            .filter(|sample| {
+                normalized_x_range
+                    .map(|(start, end)| sample.x >= start && sample.x <= end)
+                    .unwrap_or(true)
+            })
             .filter_map(|sample| {
                 sample
                     .value
@@ -278,7 +294,11 @@ impl CsvDataStore {
             })
             .collect();
 
-        min_max_downsample(&points, target_points)
+        if points.len() <= target_points {
+            points
+        } else {
+            downsample_visible_points(&points, target_points)
+        }
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
@@ -1063,6 +1083,31 @@ mod tests {
         )
     }
 
+    fn build_dense_live_csv() -> String {
+        let mut csv =
+            "timestamp,device,value,unit,mode,is_overload,is_open,is_short\n".to_owned();
+
+        for second in 0..=95 {
+            csv.push_str(&format!(
+                "1970-01-01T00:01:{second:02}Z,Multimeter,{second},V,DCV,false,false,false\n"
+            ));
+        }
+
+        for (second, value) in [
+            (96, 0.0),
+            (97, 1.5),
+            (98, 0.5),
+            (99, 2.0),
+            (100, 1.0),
+        ] {
+            csv.push_str(&format!(
+                "1970-01-01T00:01:{second:02}Z,Multimeter,{value},V,DCV,false,false,false\n"
+            ));
+        }
+
+        csv
+    }
+
     fn fake_measurement(device: DeviceId, value: f64) -> DeviceMeasurement {
         DeviceMeasurement {
             timestamp: std::time::Instant::now(),
@@ -1168,6 +1213,46 @@ mod tests {
                 (Duration::from_secs(30), 2.5),
             ]
         );
+    }
+
+    #[test]
+    fn query_points_in_view_returns_only_visible_samples() {
+        let path = write_temp_csv(concat!(
+            "timestamp,device,value,unit,mode,is_overload,is_open,is_short\n",
+            "1970-01-01T00:00:00Z,Multimeter,1.0,V,DCV,false,false,false\n",
+            "1970-01-01T00:00:01Z,Multimeter,2.0,V,DCV,false,false,false\n",
+            "1970-01-01T00:00:02Z,Multimeter,3.0,V,DCV,false,false,false\n",
+        ));
+
+        let mut store = CsvDataStore::new();
+        let source_id = store.load_csv_file(path.clone(), false).unwrap();
+        let points = store.query_points_in_view(source_id, Some((1.0, 2.0)), 64);
+
+        assert_eq!(points.len(), 2);
+        assert_eq!(points[0].0.as_secs_f64(), 1.0);
+        assert_eq!(points[0].1, 2.0);
+        assert_eq!(points[1].0.as_secs_f64(), 2.0);
+        assert_eq!(points[1].1, 3.0);
+
+        fs::remove_file(path).expect("remove temp csv");
+    }
+
+    #[test]
+    fn query_points_in_view_keeps_newest_local_live_shape() {
+        let path = write_temp_csv(&build_dense_live_csv());
+
+        let mut store = CsvDataStore::new();
+        let source_id = store
+            .attach_live_csv(DeviceId::Multimeter, path.clone())
+            .expect("attach live csv");
+        let points = store.query_points_in_view(source_id, Some((96.0, 100.0)), 256);
+
+        let xs: Vec<f64> = points.iter().map(|(x, _)| x.as_secs_f64()).collect();
+        let ys: Vec<f64> = points.iter().map(|(_, y)| *y).collect();
+        assert_eq!(xs, vec![96.0, 97.0, 98.0, 99.0, 100.0]);
+        assert_eq!(ys, vec![0.0, 1.5, 0.5, 2.0, 1.0]);
+
+        fs::remove_file(path).expect("remove temp csv");
     }
 
     #[test]
