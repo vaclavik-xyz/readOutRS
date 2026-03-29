@@ -1,6 +1,7 @@
 mod data_store;
 mod info_bar;
 mod overlay;
+mod render_cache;
 mod render_sampling;
 mod source_model;
 mod viewer_toolbar;
