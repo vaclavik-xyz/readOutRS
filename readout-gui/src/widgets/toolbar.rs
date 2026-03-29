@@ -12,6 +12,9 @@ pub const RANGE_OPTIONS: &[(Duration, &str)] = &[
     (Duration::from_secs(3600), "1h"),
 ];
 
+pub const GRAPH_VIEWER_ICON: &str = icons::PRESENTATION_CHART;
+pub const GRAPH_VIEWER_TOOLTIP: &str = "Graph Viewer (Cmd+L)";
+
 #[derive(Default)]
 pub enum ToolbarAction {
     #[default]
@@ -19,7 +22,7 @@ pub enum ToolbarAction {
     TogglePause,
     ClearCharts,
     SetTimeRange(usize),
-    OpenCsvViewer,
+    OpenGraphViewer,
     OpenSettings,
     ToggleAlwaysOnTop,
     OpenMeterControl,
@@ -80,11 +83,11 @@ pub fn show_title_bar(ui: &mut egui::Ui, state: &TitleBarState) -> ToolbarAction
             }
 
             if ui
-                .button(egui::RichText::new(icons::CHART_LINE).size(14.0))
-                .on_hover_text("CSV Viewer (Cmd+L)")
+                .button(egui::RichText::new(GRAPH_VIEWER_ICON).size(14.0))
+                .on_hover_text(GRAPH_VIEWER_TOOLTIP)
                 .clicked()
             {
-                action = ToolbarAction::OpenCsvViewer;
+                action = ToolbarAction::OpenGraphViewer;
             }
 
             if ui
@@ -162,11 +165,25 @@ pub fn mm_inline_control(ui: &mut egui::Ui) -> ToolbarAction {
 
 #[cfg(test)]
 mod tests {
-    use super::RANGE_OPTIONS;
+    use super::{GRAPH_VIEWER_ICON, GRAPH_VIEWER_TOOLTIP, RANGE_OPTIONS, ToolbarAction};
+    use egui_phosphor::regular as icons;
     use std::time::Duration;
 
     #[test]
     fn range_options_start_with_ten_seconds() {
         assert_eq!(RANGE_OPTIONS[0], (Duration::from_secs(10), "10s"));
+    }
+
+    #[test]
+    fn toolbar_exposes_open_graph_viewer_action() {
+        let action = ToolbarAction::OpenGraphViewer;
+        assert!(matches!(action, ToolbarAction::OpenGraphViewer));
+    }
+
+    #[test]
+    fn graph_viewer_toolbar_button_uses_graph_viewer_copy_and_new_icon() {
+        assert_eq!(GRAPH_VIEWER_TOOLTIP, "Graph Viewer (Cmd+L)");
+        assert_eq!(GRAPH_VIEWER_ICON, icons::PRESENTATION_CHART);
+        assert_ne!(GRAPH_VIEWER_ICON, icons::CHART_LINE);
     }
 }

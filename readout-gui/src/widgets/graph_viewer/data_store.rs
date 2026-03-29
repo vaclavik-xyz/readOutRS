@@ -1029,7 +1029,7 @@ pub(super) fn record_x(record: &CsvRecord, idx: usize) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{CsvDataStore, ViewerSource, infer_x_domain, refresh_source_metadata};
-    use crate::widgets::csv_viewer::source_model::{SourceStatus, ViewerSourceKind, XDomain};
+    use crate::widgets::graph_viewer::source_model::{SourceStatus, ViewerSourceKind, XDomain};
     use chrono::DateTime;
     use readout_core::csv_record::CsvRecord;
     use readout_core::measurement_mode::MeasurementMode;

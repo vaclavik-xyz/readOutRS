@@ -177,7 +177,7 @@ pub struct ReadOutApp {
     audio: crate::audio::AlarmAudio,
     running: bool,
     always_on_top: bool,
-    csv_viewer: widgets::csv_viewer::CsvViewerWindow,
+    graph_viewer: widgets::graph_viewer::GraphViewerWindow,
     show_mm: bool,
     show_usbc: bool,
     usbc_metric: UsbCMetric,
@@ -246,7 +246,7 @@ impl ReadOutApp {
             audio: crate::audio::AlarmAudio::new(),
             running: !first_run,
             always_on_top: config.always_on_top,
-            csv_viewer: widgets::csv_viewer::CsvViewerWindow::new(),
+            graph_viewer: widgets::graph_viewer::GraphViewerWindow::new(),
             show_mm: config.show_mm,
             show_usbc: config.show_usbc,
             usbc_metric: UsbCMetric::Voltage,
@@ -393,7 +393,7 @@ impl eframe::App for ReadOutApp {
         // Drain runtime events
         if let Some(ref runtime) = self.runtime {
             while let Ok(event) = runtime.event_rx.try_recv() {
-                self.csv_viewer.handle_runtime_event(&event);
+                self.graph_viewer.handle_runtime_event(&event);
                 self.state.handle_event(event);
             }
         }
@@ -432,7 +432,7 @@ impl eframe::App for ReadOutApp {
                 self.meter_control.open = !self.meter_control.open;
             }
             if i.modifiers.command && i.key_pressed(egui::Key::L) {
-                self.csv_viewer.open = true;
+                self.graph_viewer.open = true;
             }
             if i.modifiers.command && i.key_pressed(egui::Key::K) {
                 for pipeline in self.state.chart_pipelines.values_mut() {
@@ -533,7 +533,7 @@ impl eframe::App for ReadOutApp {
             }
         }
 
-        self.csv_viewer.show(ctx, &self.config);
+        self.graph_viewer.show(ctx, &self.config);
 
         // --- Main content ---
         let mut toolbar_action = widgets::toolbar::ToolbarAction::None;
@@ -691,8 +691,8 @@ impl eframe::App for ReadOutApp {
             widgets::toolbar::ToolbarAction::SetTimeRange(idx) => {
                 self.selected_range_idx = idx;
             }
-            widgets::toolbar::ToolbarAction::OpenCsvViewer => {
-                self.csv_viewer.open = true;
+            widgets::toolbar::ToolbarAction::OpenGraphViewer => {
+                self.graph_viewer.open = true;
             }
             widgets::toolbar::ToolbarAction::OpenSettings => {
                 self.settings_panel.open = true;

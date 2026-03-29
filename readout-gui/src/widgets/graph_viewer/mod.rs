@@ -15,8 +15,11 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 const LIVE_POLL_INTERVAL: Duration = Duration::from_millis(200);
+pub const GRAPH_VIEWER_WINDOW_TITLE: &str = "Graph Viewer";
+pub const GRAPH_VIEWER_VIEWPORT_ID: &str = "graph_viewer";
+pub const GRAPH_VIEWER_PLOT_ID: &str = "graph_viewer_plot";
 
-pub struct CsvViewerWindow {
+pub struct GraphViewerWindow {
     pub open: bool,
     data_store: CsvDataStore,
     interaction_mode: InteractionMode,
@@ -54,7 +57,7 @@ pub enum ViewerAction {
     RemoveSource(u64),
 }
 
-impl CsvViewerWindow {
+impl GraphViewerWindow {
     pub fn new() -> Self {
         Self {
             open: false,
@@ -76,7 +79,7 @@ impl CsvViewerWindow {
         }
 
         let mut viewport = egui::ViewportBuilder::default()
-            .with_title("CSV Viewer")
+            .with_title(GRAPH_VIEWER_WINDOW_TITLE)
             .with_inner_size([900.0, 560.0])
             .with_min_inner_size([480.0, 320.0]);
         if config.always_on_top {
@@ -84,7 +87,7 @@ impl CsvViewerWindow {
         }
 
         ctx.show_viewport_immediate(
-            egui::ViewportId::from_hash_of("csv_viewer"),
+            egui::ViewportId::from_hash_of(GRAPH_VIEWER_VIEWPORT_ID),
             viewport,
             |ctx, _class| {
                 let has_live_files = self.data_store.files().iter().any(|file| file.is_live);
@@ -271,7 +274,7 @@ impl CsvViewerWindow {
         let fit_next_frame = self.fit_next_frame;
         let snap_follow_next_frame = self.snap_follow_next_frame;
         let mut consumed_follow_snap = false;
-        let plot_response = egui_plot::Plot::new("csv_viewer_plot")
+        let plot_response = egui_plot::Plot::new(GRAPH_VIEWER_PLOT_ID)
             .allow_zoom(true)
             .allow_drag(self.interaction_mode == InteractionMode::Normal)
             .allow_scroll(true)
@@ -605,7 +608,10 @@ fn format_csv_value(value: Option<f64>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{CsvDataStore, CsvViewerWindow, ViewerAction, export_to_csv, format_csv_value};
+    use super::{
+        CsvDataStore, GRAPH_VIEWER_PLOT_ID, GRAPH_VIEWER_VIEWPORT_ID, GRAPH_VIEWER_WINDOW_TITLE,
+        GraphViewerWindow, ViewerAction, export_to_csv, format_csv_value,
+    };
     use readout_core::types::DeviceId;
     use readout_persistence::config::AppConfiguration;
     use std::fs;
@@ -613,7 +619,7 @@ mod tests {
 
     #[test]
     fn toggle_follow_does_not_reset_poll_timer() {
-        let mut viewer = CsvViewerWindow::new();
+        let mut viewer = GraphViewerWindow::new();
         let config = AppConfiguration::default();
         let last_poll = Instant::now()
             .checked_sub(Duration::from_secs(5))
@@ -691,7 +697,7 @@ mod tests {
 
     #[test]
     fn attach_live_csv_without_configured_path_sets_error() {
-        let mut viewer = CsvViewerWindow::new();
+        let mut viewer = GraphViewerWindow::new();
         let config = AppConfiguration::default();
 
         viewer.handle_action(ViewerAction::AttachLiveCsv(DeviceId::Multimeter), &config);
@@ -707,7 +713,7 @@ mod tests {
 
     #[test]
     fn attach_runtime_action_creates_waiting_source() {
-        let mut viewer = CsvViewerWindow::new();
+        let mut viewer = GraphViewerWindow::new();
         let config = AppConfiguration::default();
 
         viewer.handle_action(ViewerAction::AttachRuntime(DeviceId::Multimeter), &config);
@@ -750,5 +756,12 @@ mod tests {
         assert!(lines[1].contains(",2,V,DCV,"));
 
         fs::remove_file(&export_path).expect("remove export csv");
+    }
+
+    #[test]
+    fn graph_viewer_constants_use_renamed_feature_ids() {
+        assert_eq!(GRAPH_VIEWER_WINDOW_TITLE, "Graph Viewer");
+        assert_eq!(GRAPH_VIEWER_VIEWPORT_ID, "graph_viewer");
+        assert_eq!(GRAPH_VIEWER_PLOT_ID, "graph_viewer_plot");
     }
 }
