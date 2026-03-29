@@ -1,21 +1,27 @@
 mod data_store;
 mod info_bar;
 mod overlay;
+mod source_model;
 mod viewer_toolbar;
 
 use self::data_store::CsvDataStore;
 use self::overlay::ModeChangeMarker;
+use self::source_model::XDomain;
 use chrono::{DateTime, Local};
+use readout_core::types::{DeviceId, RuntimeEvent};
 use readout_persistence::config::AppConfiguration;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+
+const LIVE_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 pub struct CsvViewerWindow {
     pub open: bool,
     data_store: CsvDataStore,
     interaction_mode: InteractionMode,
     following: bool,
+    snap_follow_next_frame: bool,
     last_poll: Instant,
     overlay: overlay::OverlayState,
     hovered_cursor: Option<info_bar::CursorInfo>,
@@ -38,12 +44,14 @@ pub enum ViewerAction {
     None,
     OpenFile,
     AddFile,
+    AttachRuntime(DeviceId),
+    AttachLiveCsv(DeviceId),
     ZoomFit,
     SetMode(InteractionMode),
     Export,
     ToggleFollow,
-    ToggleFileVisibility(usize),
-    RemoveFile(usize),
+    ToggleSourceVisibility(u64),
+    RemoveSource(u64),
 }
 
 impl CsvViewerWindow {
@@ -53,6 +61,7 @@ impl CsvViewerWindow {
             data_store: CsvDataStore::new(),
             interaction_mode: InteractionMode::Normal,
             following: true,
+            snap_follow_next_frame: false,
             last_poll: Instant::now(),
             overlay: overlay::OverlayState::default(),
             hovered_cursor: None,
@@ -74,18 +83,15 @@ impl CsvViewerWindow {
             viewport = viewport.with_always_on_top();
         }
 
-        let live_paths = configured_live_paths(config);
-
         ctx.show_viewport_immediate(
             egui::ViewportId::from_hash_of("csv_viewer"),
             viewport,
             |ctx, _class| {
-                self.data_store.sync_live_paths(&live_paths);
                 let has_live_files = self.data_store.files().iter().any(|file| file.is_live);
-                self.handle_keyboard_shortcuts(ctx, &live_paths);
+                self.handle_keyboard_shortcuts(ctx, config);
 
-                if has_live_files && self.last_poll.elapsed() >= Duration::from_secs(1) {
-                    self.data_store.poll_live_files();
+                if has_live_files && self.last_poll.elapsed() >= LIVE_POLL_INTERVAL {
+                    self.data_store.poll_live_sources();
                     self.last_poll = Instant::now();
                 }
 
@@ -96,7 +102,7 @@ impl CsvViewerWindow {
                         self.interaction_mode,
                         self.following,
                     );
-                    self.handle_action(action, &live_paths);
+                    self.handle_action(action, config);
 
                     if let Some(error) = &self.last_error {
                         ui.colored_label(egui::Color32::from_rgb(220, 90, 90), error);
@@ -120,7 +126,7 @@ impl CsvViewerWindow {
                 overlay::show_marker_edit_popup(ctx, &mut self.overlay);
 
                 if has_live_files {
-                    ctx.request_repaint_after(Duration::from_secs(1));
+                    ctx.request_repaint_after(LIVE_POLL_INTERVAL);
                 }
 
                 if ctx.input(|i| i.viewport().close_requested()) {
@@ -130,18 +136,15 @@ impl CsvViewerWindow {
         );
     }
 
-    fn handle_action(&mut self, action: ViewerAction, live_paths: &[PathBuf]) {
+    fn handle_action(&mut self, action: ViewerAction, config: &AppConfiguration) {
         match action {
             ViewerAction::OpenFile => {
                 if let Some(path) = pick_csv_file() {
-                    let is_live = is_live_path(&path, live_paths);
-                    let mut next_store = CsvDataStore::new();
-                    match next_store.load_file(path, is_live) {
+                    match self.data_store.load_csv_file(path, true) {
                         Ok(_) => {
-                            self.data_store = next_store;
                             self.overlay = overlay::OverlayState::default();
                             self.hovered_cursor = None;
-                            self.following = is_live;
+                            self.following = false;
                             self.fit_next_frame = true;
                             self.last_error = None;
                         }
@@ -153,8 +156,7 @@ impl CsvViewerWindow {
             }
             ViewerAction::AddFile => {
                 if let Some(path) = pick_csv_file() {
-                    let is_live = is_live_path(&path, live_paths);
-                    match self.data_store.load_file(path, is_live) {
+                    match self.data_store.load_csv_file(path, false) {
                         Ok(_) => {
                             self.fit_next_frame = true;
                             self.last_error = None;
@@ -163,8 +165,38 @@ impl CsvViewerWindow {
                             self.last_error = Some(format!("Failed to add CSV: {err}"));
                         }
                     }
-                    if is_live {
+                }
+            }
+            ViewerAction::AttachRuntime(device) => match self.data_store.attach_runtime_device(device) {
+                        Ok(_) => {
+                            self.following = true;
+                            self.snap_follow_next_frame = true;
+                            self.last_error = None;
+                        }
+                Err(err) => {
+                    self.last_error = Some(format!("Failed to attach live source: {err}"));
+                }
+            },
+            ViewerAction::AttachLiveCsv(device) => {
+                let Some(path) = configured_tail_path(config, device) else {
+                    self.last_error = Some(format!(
+                        "No CSV log path configured for {}",
+                        match device {
+                            DeviceId::Multimeter => "Multimeter",
+                            DeviceId::UsbC => "USB-C",
+                        }
+                    ));
+                    return;
+                };
+
+                match self.data_store.attach_live_csv(device, path) {
+                    Ok(_) => {
                         self.following = true;
+                        self.snap_follow_next_frame = true;
+                        self.last_error = None;
+                    }
+                    Err(err) => {
+                        self.last_error = Some(format!("Failed to attach CSV tail: {err}"));
                     }
                 }
             }
@@ -192,15 +224,21 @@ impl CsvViewerWindow {
             }
             ViewerAction::ToggleFollow => {
                 self.following = !self.following;
+                self.snap_follow_next_frame = self.following;
             }
-            ViewerAction::ToggleFileVisibility(file_idx) => {
-                if let Some(file) = self.data_store.files_mut().get_mut(file_idx) {
+            ViewerAction::ToggleSourceVisibility(source_id) => {
+                if let Some(file) = self
+                    .data_store
+                    .files_mut()
+                    .iter_mut()
+                    .find(|file| file.id == source_id)
+                {
                     file.visible = !file.visible;
                 }
                 self.hovered_cursor = None;
             }
-            ViewerAction::RemoveFile(file_idx) => {
-                self.data_store.remove_file(file_idx);
+            ViewerAction::RemoveSource(source_id) => {
+                self.data_store.remove_source(source_id);
                 if self.data_store.file_count() == 0 {
                     self.overlay = overlay::OverlayState::default();
                     self.following = false;
@@ -209,6 +247,10 @@ impl CsvViewerWindow {
             }
             ViewerAction::None => {}
         }
+    }
+
+    pub fn handle_runtime_event(&mut self, event: &RuntimeEvent) {
+        self.data_store.handle_runtime_event(event);
     }
 
     fn render_chart(&mut self, ui: &mut egui::Ui) {
@@ -225,21 +267,16 @@ impl CsvViewerWindow {
 
         let mode_change_markers = self.mode_change_markers();
         let latest_live_x = self.data_store.latest_live_x();
+        let active_domain = self.data_store.active_domain();
         let fit_next_frame = self.fit_next_frame;
+        let snap_follow_next_frame = self.snap_follow_next_frame;
+        let mut consumed_follow_snap = false;
         let plot_response = egui_plot::Plot::new("csv_viewer_plot")
             .allow_zoom(true)
             .allow_drag(self.interaction_mode == InteractionMode::Normal)
             .allow_scroll(true)
-            .x_axis_formatter(|mark, _range| format_epoch_axis(mark.value))
-            .label_formatter(|name, point| {
-                // Replace egui_plot's default "x=..., y=..." tooltip
-                let time = format_epoch_full(point.x);
-                if name.is_empty() {
-                    format!("{time}\n{:.4}", point.y)
-                } else {
-                    format!("{name}\n{time}\n{:.4}", point.y)
-                }
-            })
+            .x_axis_formatter(move |mark, _range| format_axis_label(mark.value, active_domain))
+            .label_formatter(|_, _| String::new())
             .show(ui, |plot_ui| {
                 let cursor_pos = if plot_ui.response().hovered() || plot_ui.response().dragged() {
                     plot_ui.pointer_coordinate()
@@ -247,14 +284,15 @@ impl CsvViewerWindow {
                     None
                 };
                 self.overlay.cursor_pos = cursor_pos;
-                self.hovered_cursor = cursor_pos.and_then(|pos| self.cursor_info_for_x(pos.x));
+                self.hovered_cursor =
+                    cursor_pos.and_then(|pos| self.cursor_info_for_point(pos.x, pos.y));
 
-                for (file_idx, file) in self.data_store.files().iter().enumerate() {
+                for file in self.data_store.files() {
                     if !file.visible {
                         continue;
                     }
 
-                    let points = self.data_store.query_points(file_idx, 2_000);
+                    let points = self.data_store.query_points(file.id, 2_000);
                     if points.is_empty() {
                         continue;
                     }
@@ -263,14 +301,8 @@ impl CsvViewerWindow {
                         .into_iter()
                         .map(|(time, value)| [time.as_secs_f64(), value])
                         .collect();
-                    let name = file
-                        .path
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .unwrap_or("CSV");
-
                     plot_ui.line(
-                        egui_plot::Line::new(name, series)
+                        egui_plot::Line::new(file.label.clone(), series)
                             .stroke(egui::Stroke::new(1.5, file.color)),
                     );
                 }
@@ -285,10 +317,14 @@ impl CsvViewerWindow {
                 } else if self.following
                     && let Some(latest_x) = latest_live_x
                 {
-                    follow_live_edge(plot_ui, latest_x);
+                    consumed_follow_snap =
+                        follow_live_edge(plot_ui, latest_x, snap_follow_next_frame);
                 }
             });
         self.fit_next_frame = false;
+        if consumed_follow_snap {
+            self.snap_follow_next_frame = false;
+        }
 
         if self.following
             && should_detach_follow(
@@ -298,6 +334,7 @@ impl CsvViewerWindow {
             )
         {
             self.following = false;
+            self.snap_follow_next_frame = false;
         }
 
         let cursor_pos = self.overlay.cursor_pos;
@@ -333,8 +370,8 @@ impl CsvViewerWindow {
         overlay::compute_value_stats(&values)
     }
 
-    fn cursor_info_for_x(&self, x: f64) -> Option<info_bar::CursorInfo> {
-        let record = self.data_store.nearest_visible_record(x)?;
+    fn cursor_info_for_point(&self, x: f64, y: f64) -> Option<info_bar::CursorInfo> {
+        let record = self.data_store.nearest_visible_sample(x, y)?;
 
         Some(info_bar::CursorInfo {
             series: record.series,
@@ -354,9 +391,14 @@ impl CsvViewerWindow {
                 file.mode_changes.iter().filter_map(move |idx| {
                     let record = file.records.get(*idx)?;
                     let previous = file.records.get(idx.saturating_sub(1))?;
+                    let x = file
+                        .samples
+                        .get(*idx)
+                        .map(|sample| sample.x)
+                        .unwrap_or_else(|| data_store::record_x(record, *idx));
 
                     Some(ModeChangeMarker {
-                        x: data_store::record_x(record, *idx),
+                        x,
                         label: format!("{} → {}", previous.mode, record.mode),
                         color: file.color,
                     })
@@ -365,7 +407,7 @@ impl CsvViewerWindow {
             .collect()
     }
 
-    fn handle_keyboard_shortcuts(&mut self, ctx: &egui::Context, live_paths: &[PathBuf]) {
+    fn handle_keyboard_shortcuts(&mut self, ctx: &egui::Context, config: &AppConfiguration) {
         let escape_pressed =
             ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
         if escape_pressed {
@@ -383,12 +425,12 @@ impl CsvViewerWindow {
         };
 
         if ctx.input_mut(|input| input.consume_key(command_shift, egui::Key::O)) {
-            self.handle_action(ViewerAction::AddFile, live_paths);
+            self.handle_action(ViewerAction::AddFile, config);
             return;
         }
 
         if ctx.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::O)) {
-            self.handle_action(ViewerAction::OpenFile, live_paths);
+            self.handle_action(ViewerAction::OpenFile, config);
             return;
         }
 
@@ -439,21 +481,17 @@ impl CsvViewerWindow {
     }
 }
 
-fn configured_live_paths(config: &AppConfiguration) -> Vec<PathBuf> {
-    let mut paths = Vec::new();
+fn configured_tail_path(config: &AppConfiguration, device: DeviceId) -> Option<PathBuf> {
+    let path = match device {
+        DeviceId::Multimeter => &config.multimeter_csv_log_file_path,
+        DeviceId::UsbC => &config.usbc_csv_log_file_path,
+    };
 
-    if config.multimeter_csv_logging_enabled && !config.multimeter_csv_log_file_path.is_empty() {
-        paths.push(PathBuf::from(&config.multimeter_csv_log_file_path));
+    if path.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(path))
     }
-    if config.usbc_csv_logging_enabled && !config.usbc_csv_log_file_path.is_empty() {
-        paths.push(PathBuf::from(&config.usbc_csv_log_file_path));
-    }
-
-    paths
-}
-
-fn is_live_path(path: &Path, live_paths: &[PathBuf]) -> bool {
-    live_paths.iter().any(|live_path| live_path == path)
 }
 
 fn pick_csv_file() -> Option<PathBuf> {
@@ -472,18 +510,41 @@ fn should_detach_follow(ui: &egui::Ui, response: &egui::Response, allow_drag_det
     (allow_drag_detach && response.dragged()) || scrolled
 }
 
-fn follow_live_edge(plot_ui: &mut egui_plot::PlotUi<'_>, latest_x: f64) {
+fn follow_live_edge(
+    plot_ui: &mut egui_plot::PlotUi<'_>,
+    latest_x: f64,
+    force_snap: bool,
+) -> bool {
     let bounds = plot_ui.plot_bounds();
-    if !bounds.is_valid() || latest_x <= bounds.max()[0] {
-        return;
+    if !bounds.is_valid() {
+        return false;
     }
 
-    let width = bounds.width();
+    let Some((x_min, x_max)) =
+        compute_follow_window(bounds.min()[0], bounds.max()[0], latest_x, force_snap)
+    else {
+        return false;
+    };
+
+    plot_ui.set_plot_bounds_x(x_min..=x_max);
+    true
+}
+
+fn compute_follow_window(
+    x_min: f64,
+    x_max: f64,
+    latest_x: f64,
+    force_snap: bool,
+) -> Option<(f64, f64)> {
+    let width = x_max - x_min;
     if !width.is_finite() || width <= 0.0 {
-        return;
+        return None;
+    }
+    if !force_snap && latest_x <= x_max {
+        return None;
     }
 
-    plot_ui.set_plot_bounds_x((latest_x - width)..=latest_x);
+    Some((latest_x - width, latest_x))
 }
 
 fn export_to_csv(
@@ -497,41 +558,29 @@ fn export_to_csv(
         "timestamp,device,value,unit,mode,is_overload,is_open,is_short"
     )?;
 
-    let selection = selection.map(|(start, end)| (start.min(end), start.max(end)));
-
-    for loaded in data_store.files() {
-        if !loaded.visible {
-            continue;
-        }
-
-        for (idx, record) in loaded.records.iter().enumerate() {
-            if !loaded.visible_modes.contains(&record.mode) {
-                continue;
-            }
-
-            let record_x = data_store::record_x(record, idx);
-            if let Some((x_min, x_max)) = selection
-                && (record_x < x_min || record_x > x_max)
-            {
-                continue;
-            }
-
-            writeln!(
-                file,
-                "{},{},{},{},{},{},{},{}",
-                record.timestamp,
-                record.device,
-                format_csv_value(record.value),
-                record.unit,
-                record.mode,
-                record.is_overload,
-                record.is_open,
-                record.is_short
-            )?;
-        }
+    for row in data_store.export_rows(selection) {
+        writeln!(
+            file,
+            "{},{},{},{},{},{},{},{}",
+            row.timestamp,
+            row.device,
+            row.value,
+            row.unit,
+            row.mode,
+            row.is_overload,
+            row.is_open,
+            row.is_short
+        )?;
     }
 
     Ok(())
+}
+
+fn format_axis_label(value: f64, active_domain: Option<XDomain>) -> String {
+    match active_domain.unwrap_or(XDomain::WallClock) {
+        XDomain::WallClock => format_epoch_axis(value),
+        XDomain::SequenceIndex => format!("#{}", value.round() as i64),
+    }
 }
 
 /// Format epoch seconds for X axis tick labels. Shows HH:MM:SS for intra-day,
@@ -546,17 +595,7 @@ fn format_epoch_axis(epoch_secs: f64) -> String {
     local.format("%H:%M:%S").to_string()
 }
 
-/// Format epoch seconds for tooltips and info bar — full date + time with sub-second precision.
-fn format_epoch_full(epoch_secs: f64) -> String {
-    let secs = epoch_secs.floor() as i64;
-    let nanos = ((epoch_secs - secs as f64) * 1e9) as u32;
-    let Some(dt) = DateTime::from_timestamp(secs, nanos) else {
-        return format!("{epoch_secs:.3}");
-    };
-    let local: DateTime<Local> = dt.with_timezone(&Local);
-    local.format("%Y-%m-%d %H:%M:%S%.3f").to_string()
-}
-
+#[cfg(test)]
 fn format_csv_value(value: Option<f64>) -> String {
     match value {
         Some(value) => value.to_string(),
@@ -567,18 +606,21 @@ fn format_csv_value(value: Option<f64>) -> String {
 #[cfg(test)]
 mod tests {
     use super::{CsvDataStore, CsvViewerWindow, ViewerAction, export_to_csv, format_csv_value};
+    use readout_core::types::DeviceId;
+    use readout_persistence::config::AppConfiguration;
     use std::fs;
     use std::time::{Duration, Instant};
 
     #[test]
     fn toggle_follow_does_not_reset_poll_timer() {
         let mut viewer = CsvViewerWindow::new();
+        let config = AppConfiguration::default();
         let last_poll = Instant::now()
             .checked_sub(Duration::from_secs(5))
             .expect("valid instant subtraction");
         viewer.last_poll = last_poll;
 
-        viewer.handle_action(ViewerAction::ToggleFollow, &[]);
+        viewer.handle_action(ViewerAction::ToggleFollow, &config);
 
         assert!(!viewer.following);
         assert_eq!(viewer.last_poll, last_poll);
@@ -644,6 +686,69 @@ mod tests {
         );
 
         fs::remove_file(&source_path).expect("remove source csv");
+        fs::remove_file(&export_path).expect("remove export csv");
+    }
+
+    #[test]
+    fn attach_live_csv_without_configured_path_sets_error() {
+        let mut viewer = CsvViewerWindow::new();
+        let config = AppConfiguration::default();
+
+        viewer.handle_action(ViewerAction::AttachLiveCsv(DeviceId::Multimeter), &config);
+
+        assert!(
+            viewer
+                .last_error
+                .as_deref()
+                .unwrap()
+                .contains("CSV log path")
+        );
+    }
+
+    #[test]
+    fn attach_runtime_action_creates_waiting_source() {
+        let mut viewer = CsvViewerWindow::new();
+        let config = AppConfiguration::default();
+
+        viewer.handle_action(ViewerAction::AttachRuntime(DeviceId::Multimeter), &config);
+
+        assert_eq!(viewer.data_store.sources().len(), 1);
+    }
+
+    #[test]
+    fn enabling_follow_requests_live_snap_even_when_latest_point_is_inside_bounds() {
+        let next = super::compute_follow_window(100.0, 200.0, 150.0, true).unwrap();
+        assert_eq!(next, (50.0, 150.0));
+    }
+
+    #[test]
+    fn follow_window_returns_none_without_positive_width() {
+        assert!(super::compute_follow_window(100.0, 100.0, 150.0, true).is_none());
+    }
+
+    #[test]
+    fn export_to_csv_includes_runtime_samples_and_selection_filter() {
+        let export_path = std::env::temp_dir().join(format!(
+            "readout_csv_viewer_runtime_export_{}_{}.csv",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time before epoch")
+                .as_nanos()
+        ));
+
+        let mut store = CsvDataStore::new();
+        let source_id = store.attach_runtime_device(DeviceId::Multimeter).unwrap();
+        store.push_test_sample(source_id, 100.0, Some(1.0), "V", "DCV");
+        store.push_test_sample(source_id, 101.0, Some(2.0), "V", "DCV");
+
+        export_to_csv(&export_path, &store, Some((100.5, 101.5))).expect("export runtime csv");
+
+        let exported = fs::read_to_string(&export_path).expect("read export");
+        let lines: Vec<&str> = exported.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[1].contains(",2,V,DCV,"));
+
         fs::remove_file(&export_path).expect("remove export csv");
     }
 }

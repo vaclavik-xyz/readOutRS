@@ -2,6 +2,7 @@ use super::data_store::CsvDataStore;
 use super::{InteractionMode, ViewerAction};
 use egui::RichText;
 use egui_phosphor::regular as icons;
+use readout_core::types::DeviceId;
 
 pub fn show(
     ui: &mut egui::Ui,
@@ -24,6 +25,33 @@ pub fn show(
         {
             action = ViewerAction::AddFile;
         }
+
+        ui.menu_button(
+            RichText::new(format!("{} Attach Live", icons::PLUGS)).small(),
+            |ui| {
+                if ui.button("Multimeter").clicked() {
+                    action = ViewerAction::AttachRuntime(DeviceId::Multimeter);
+                    ui.close();
+                }
+                if ui.button("USB-C").clicked() {
+                    action = ViewerAction::AttachRuntime(DeviceId::UsbC);
+                    ui.close();
+                }
+            },
+        );
+        ui.menu_button(
+            RichText::new(format!("{} Tail CSV", icons::FILE_CSV)).small(),
+            |ui| {
+                if ui.button("Multimeter CSV").clicked() {
+                    action = ViewerAction::AttachLiveCsv(DeviceId::Multimeter);
+                    ui.close();
+                }
+                if ui.button("USB-C CSV").clicked() {
+                    action = ViewerAction::AttachLiveCsv(DeviceId::UsbC);
+                    ui.close();
+                }
+            },
+        );
 
         ui.separator();
 
@@ -90,17 +118,13 @@ pub fn show(
                 }
             }
 
-            for (file_idx, file) in data_store.files().iter().enumerate().rev() {
-                let name = file
-                    .path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or("CSV");
-
+            for file in data_store.files().iter().rev() {
                 let response = ui
                     .selectable_label(
                         file.visible,
-                        RichText::new(format!("● {name}")).small().color(file.color),
+                        RichText::new(format!("● {}", file.label))
+                            .small()
+                            .color(file.color),
                     )
                     .on_hover_text(if file.visible {
                         "Hide series"
@@ -108,11 +132,11 @@ pub fn show(
                         "Show series"
                     });
                 if response.clicked() {
-                    action = ViewerAction::ToggleFileVisibility(file_idx);
+                    action = ViewerAction::ToggleSourceVisibility(file.id);
                 }
                 response.context_menu(|ui| {
                     if ui.button("Remove").clicked() {
-                        action = ViewerAction::RemoveFile(file_idx);
+                        action = ViewerAction::RemoveSource(file.id);
                         ui.close();
                     }
                 });

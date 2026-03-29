@@ -393,6 +393,7 @@ impl eframe::App for ReadOutApp {
         // Drain runtime events
         if let Some(ref runtime) = self.runtime {
             while let Ok(event) = runtime.event_rx.try_recv() {
+                self.csv_viewer.handle_runtime_event(&event);
                 self.state.handle_event(event);
             }
         }

@@ -3806,6 +3806,7 @@ dependencies = [
 name = "readout-gui"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "clap",
  "eframe",
  "egui",

@@ -309,14 +309,6 @@ pub fn draw_crosshair(
     };
 
     let color = Color32::from_rgba_premultiplied(220, 225, 235, 70);
-    let tooltip = cursor_info
-        .map(|cursor| {
-            format!(
-                "{:.4} {}\n{}\n{} [{}]",
-                cursor.value, cursor.unit, cursor.timestamp, cursor.series, cursor.mode
-            )
-        })
-        .unwrap_or_else(|| format!("x {:.2}\ny {:.4}", pos.x, pos.y));
 
     plot_ui.vline(
         VLine::new("cursor_crosshair_x", pos.x)
@@ -328,11 +320,17 @@ pub fn draw_crosshair(
             .color(color)
             .style(LineStyle::dotted_dense()),
     );
-    plot_ui.text(
-        Text::new("cursor_tooltip", PlotPoint::new(pos.x, pos.y), tooltip)
-            .anchor(Align2::LEFT_BOTTOM)
-            .color(Color32::WHITE),
-    );
+    if let Some(cursor) = cursor_info {
+        let tooltip = format!(
+            "{:.4} {}\n{}\n{} [{}]",
+            cursor.value, cursor.unit, cursor.timestamp, cursor.series, cursor.mode
+        );
+        plot_ui.text(
+            Text::new("cursor_tooltip", PlotPoint::new(pos.x, pos.y), tooltip)
+                .anchor(Align2::LEFT_BOTTOM)
+                .color(Color32::WHITE),
+        );
+    }
 }
 
 pub fn show_marker_edit_popup(ctx: &egui::Context, state: &mut OverlayState) {
