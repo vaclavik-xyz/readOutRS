@@ -9,6 +9,32 @@ fn default_config_is_valid() {
 }
 
 #[test]
+fn obs_enabled_defaults_to_true() {
+    let config = AppConfiguration::default();
+    assert!(config.multimeter_obs_enabled);
+    assert!(config.usbc_obs_enabled);
+}
+
+#[test]
+fn obs_enabled_round_trips_through_json() {
+    let mut config = AppConfiguration::default();
+    config.multimeter_obs_enabled = false;
+    config.usbc_obs_enabled = false;
+    let json = serde_json::to_string(&config).unwrap();
+    let loaded: AppConfiguration = serde_json::from_str(&json).unwrap();
+    assert!(!loaded.multimeter_obs_enabled);
+    assert!(!loaded.usbc_obs_enabled);
+}
+
+#[test]
+fn obs_enabled_missing_in_json_defaults_to_true() {
+    let json = r#"{"multimeter_output_file": "test.txt"}"#;
+    let config: AppConfiguration = serde_json::from_str(json).unwrap();
+    assert!(config.multimeter_obs_enabled);
+    assert!(config.usbc_obs_enabled);
+}
+
+#[test]
 fn deserialize_with_missing_keys_uses_defaults() {
     let json = r#"{"multimeter_port": "/dev/ttyUSB0"}"#;
     let config: AppConfiguration = serde_json::from_str(json).unwrap();

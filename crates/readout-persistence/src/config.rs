@@ -159,6 +159,10 @@ pub struct AppConfiguration {
     pub multimeter_obs_output_mode: ObsOutputMode,
     #[serde(default)]
     pub usbc_obs_output_mode: ObsOutputMode,
+    #[serde(default = "default_true")]
+    pub multimeter_obs_enabled: bool,
+    #[serde(default = "default_true")]
+    pub usbc_obs_enabled: bool,
     #[serde(default = "default_multimeter_obs_template")]
     pub multimeter_obs_custom_template: String,
     #[serde(default = "default_usbc_obs_template")]
@@ -268,6 +272,8 @@ impl Default for AppConfiguration {
             usbc_output_file: String::new(),
             multimeter_obs_output_mode: ObsOutputMode::ValueOnly,
             usbc_obs_output_mode: ObsOutputMode::ValueOnly,
+            multimeter_obs_enabled: true,
+            usbc_obs_enabled: true,
             multimeter_obs_custom_template: "{value} {unit}".into(),
             usbc_obs_custom_template: "{voltage} {current} {power}".into(),
             multimeter_value_label: String::new(),
@@ -369,6 +375,10 @@ impl<'de> Deserialize<'de> for AppConfiguration {
             multimeter_obs_output_mode: ObsOutputMode,
             #[serde(default)]
             usbc_obs_output_mode: ObsOutputMode,
+            #[serde(default = "default_true")]
+            multimeter_obs_enabled: bool,
+            #[serde(default = "default_true")]
+            usbc_obs_enabled: bool,
             #[serde(default = "default_multimeter_obs_template")]
             multimeter_obs_custom_template: String,
             #[serde(default = "default_usbc_obs_template")]
@@ -431,6 +441,8 @@ impl<'de> Deserialize<'de> for AppConfiguration {
             usbc_output_file: inner.usbc_output_file,
             multimeter_obs_output_mode: inner.multimeter_obs_output_mode,
             usbc_obs_output_mode: inner.usbc_obs_output_mode,
+            multimeter_obs_enabled: inner.multimeter_obs_enabled,
+            usbc_obs_enabled: inner.usbc_obs_enabled,
             multimeter_obs_custom_template: inner.multimeter_obs_custom_template,
             usbc_obs_custom_template: inner.usbc_obs_custom_template,
             multimeter_value_label: inner.multimeter_value_label,
