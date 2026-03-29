@@ -1,3 +1,4 @@
+use crate::downsampling::{average_downsample, min_max_downsample};
 use std::time::Duration;
 
 /// A point in the chart: (timestamp, value).
@@ -83,7 +84,7 @@ impl ChartPipeline {
         }
 
         // Min-max downsample
-        Self::min_max_downsample(&self.scratch, target_points)
+        min_max_downsample(&self.scratch, target_points)
     }
 
     /// Query with averaged downsampling — produces smoother lines for TUI braille rendering.
@@ -104,38 +105,7 @@ impl ChartPipeline {
             return self.scratch.clone();
         }
 
-        Self::average_downsample(&self.scratch, target_points)
-    }
-
-    fn average_downsample(samples: &[ChartPoint], target_points: usize) -> Vec<ChartPoint> {
-        if target_points == 0 {
-            return Vec::new();
-        }
-        let bucket_size = samples.len() as f64 / target_points as f64;
-        let mut result = Vec::with_capacity(target_points);
-
-        for b in 0..target_points {
-            let start = (b as f64 * bucket_size) as usize;
-            let end = (((b + 1) as f64) * bucket_size) as usize;
-            let end = end.min(samples.len());
-
-            if start >= end {
-                continue;
-            }
-
-            let mut sum_t = 0.0f64;
-            let mut sum_v = 0.0f64;
-            let count = (end - start) as f64;
-
-            for sample in &samples[start..end] {
-                sum_t += sample.0.as_secs_f64();
-                sum_v += sample.1;
-            }
-
-            result.push((Duration::from_secs_f64(sum_t / count), sum_v / count));
-        }
-
-        result
+        average_downsample(&self.scratch, target_points)
     }
 
     fn logical_start(&self) -> usize {
@@ -177,51 +147,5 @@ impl ChartPipeline {
         for logical_idx in first_visible..self.count {
             self.scratch.push(self.sample_at_logical(logical_idx));
         }
-    }
-
-    fn min_max_downsample(samples: &[ChartPoint], target_points: usize) -> Vec<ChartPoint> {
-        let bucket_count = target_points / 2;
-        if bucket_count == 0 {
-            // target_points < 2: return at least the last sample if available
-            return samples.last().copied().into_iter().collect();
-        }
-
-        let bucket_size = samples.len() as f64 / bucket_count as f64;
-        let mut result = Vec::with_capacity(target_points);
-
-        for b in 0..bucket_count {
-            let start = (b as f64 * bucket_size) as usize;
-            let end = ((b + 1) as f64 * bucket_size) as usize;
-            let end = end.min(samples.len());
-
-            if start >= end {
-                continue;
-            }
-
-            let mut min_idx = start;
-            let mut max_idx = start;
-
-            for i in start..end {
-                if samples[i].1.total_cmp(&samples[min_idx].1).is_lt() {
-                    min_idx = i;
-                }
-                if samples[i].1.total_cmp(&samples[max_idx].1).is_gt() {
-                    max_idx = i;
-                }
-            }
-
-            // Add in chronological order, deduplicate by index
-            if min_idx == max_idx {
-                result.push(samples[min_idx]);
-            } else if samples[min_idx].0 <= samples[max_idx].0 {
-                result.push(samples[min_idx]);
-                result.push(samples[max_idx]);
-            } else {
-                result.push(samples[max_idx]);
-                result.push(samples[min_idx]);
-            }
-        }
-
-        result
     }
 }

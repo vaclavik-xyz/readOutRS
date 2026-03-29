@@ -89,3 +89,27 @@ fn time_filter_works_after_ring_buffer_wrap() {
 
     assert_eq!(values, vec![7.0, 8.0, 9.0]);
 }
+
+#[test]
+fn query_with_now_target_points_zero_returns_latest_visible_sample() {
+    let mut pipeline = ChartPipeline::new(10);
+    pipeline.push(Duration::from_secs(10), 1.0);
+    pipeline.push(Duration::from_secs(20), 2.0);
+    pipeline.push(Duration::from_secs(30), 3.0);
+
+    let points = pipeline.query_with_now(Duration::from_secs(60), 0, Duration::from_secs(30));
+
+    assert_eq!(points, vec![(Duration::from_secs(30), 3.0)]);
+}
+
+#[test]
+fn query_with_now_target_points_one_returns_latest_visible_sample() {
+    let mut pipeline = ChartPipeline::new(10);
+    pipeline.push(Duration::from_secs(10), 1.0);
+    pipeline.push(Duration::from_secs(20), 2.0);
+    pipeline.push(Duration::from_secs(30), 3.0);
+
+    let points = pipeline.query_with_now(Duration::from_secs(60), 1, Duration::from_secs(30));
+
+    assert_eq!(points, vec![(Duration::from_secs(30), 3.0)]);
+}
