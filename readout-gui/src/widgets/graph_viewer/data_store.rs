@@ -99,6 +99,7 @@ pub struct ViewerSource {
     pub last_read_pos: u64,
     pub last_modified: Option<SystemTime>,
     pub is_live: bool,
+    pub render_revision: u64,
 }
 
 pub struct CsvDataStore {
@@ -172,6 +173,7 @@ impl CsvDataStore {
             last_read_pos: 0,
             last_modified: None,
             is_live: true,
+            render_revision: 0,
         });
 
         Ok(id)
@@ -231,6 +233,7 @@ impl CsvDataStore {
             last_read_pos,
             last_modified,
             is_live: true,
+            render_revision: 0,
         };
         refresh_source_metadata(&mut source);
         let id = source.id;
@@ -355,6 +358,7 @@ impl CsvDataStore {
             } else {
                 source.visible_modes.remove(mode);
             }
+            source.render_revision += 1;
         }
     }
 
@@ -638,6 +642,7 @@ impl CsvDataStore {
             last_read_pos,
             last_modified,
             is_live,
+            render_revision: 0,
         };
         refresh_source_metadata(&mut source);
         let id = source.id;
@@ -836,6 +841,7 @@ fn refresh_source_metadata(source: &mut ViewerSource) {
     };
 
     source.visible_modes = selected_modes;
+    source.render_revision += 1;
 }
 
 fn push_runtime_sample(source: &mut ViewerSource, measurement: &DeviceMeasurement) {
@@ -885,6 +891,7 @@ fn push_runtime_sample(source: &mut ViewerSource, measurement: &DeviceMeasuremen
     if !source.mode_filter_initialized {
         source.mode_filter_initialized = true;
     }
+    source.render_revision += 1;
 }
 
 fn normalize_samples(records: &[CsvRecord], x_domain: XDomain) -> Vec<ViewerSample> {
@@ -1157,9 +1164,49 @@ mod tests {
             last_read_pos: 0,
             last_modified: None,
             is_live: false,
+            render_revision: 0,
         };
         refresh_source_metadata(&mut source);
         source
+    }
+
+    #[test]
+    fn render_revision_is_one_after_initial_load() {
+        let csv = write_temp_csv(&csv_with_value("2026-03-29T10:00:00Z", 1.0));
+        let mut store = CsvDataStore::new();
+        let id = store.load_csv_file(csv, false).unwrap();
+        let source = store.source_by_id(id).unwrap();
+
+        assert_eq!(source.render_revision, 1);
+    }
+
+    #[test]
+    fn render_revision_increments_on_runtime_sample() {
+        let mut store = CsvDataStore::new();
+        let device = DeviceId::Multimeter;
+        let id = store.attach_runtime_device(device).unwrap();
+        let rev_before = store.source_by_id(id).unwrap().render_revision;
+
+        store.handle_runtime_event(&RuntimeEvent::Measurement {
+            device,
+            value: fake_measurement(device, 1.23),
+        });
+
+        let rev_after = store.source_by_id(id).unwrap().render_revision;
+        assert!(rev_after > rev_before, "revision must increase after sample push");
+    }
+
+    #[test]
+    fn render_revision_increments_on_mode_visibility_change() {
+        let csv = write_temp_csv(&csv_with_value("2026-03-29T10:00:00Z", 1.0));
+        let mut store = CsvDataStore::new();
+        let id = store.load_csv_file(csv, false).unwrap();
+        let rev_before = store.source_by_id(id).unwrap().render_revision;
+
+        store.set_mode_visible("DCV", false);
+
+        let rev_after = store.source_by_id(id).unwrap().render_revision;
+        assert!(rev_after > rev_before, "revision must increase after mode visibility change");
     }
 
     #[test]
