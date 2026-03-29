@@ -518,31 +518,33 @@ impl CsvDataStore {
 
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn nearest_visible_record(&self, x: f64) -> Option<HoveredRecord> {
-        self.sources
-            .iter()
-            .filter(|source| source.visible)
-            .flat_map(|source| {
-                source.samples.iter().filter_map(move |sample| {
-                    let value = sample.value?;
-                    if !source.visible_modes.contains(&sample.mode) {
-                        return None;
-                    }
-
-                    Some((
-                        (sample.x - x).abs(),
-                        HoveredRecord {
-                            series: source.label.clone(),
-                            x: sample.x,
-                            timestamp: sample.x_label.clone(),
-                            value,
-                            unit: sample.unit.clone(),
-                            mode: sample.mode.clone(),
-                        },
-                    ))
-                })
-            })
-            .min_by(|(left_dist, _), (right_dist, _)| left_dist.total_cmp(right_dist))
-            .map(|(_, record)| record)
+        // Two-pass: first find closest (source_idx, sample_idx), then construct record
+        let mut best: Option<(f64, usize, usize)> = None;
+        for (si, source) in self.sources.iter().enumerate() {
+            if !source.visible {
+                continue;
+            }
+            for (ri, sample) in source.samples.iter().enumerate() {
+                if sample.value.is_none() || !source.visible_modes.contains(&sample.mode) {
+                    continue;
+                }
+                let dist = (sample.x - x).abs();
+                if best.map_or(true, |(d, _, _)| dist < d) {
+                    best = Some((dist, si, ri));
+                }
+            }
+        }
+        let (_, si, ri) = best?;
+        let source = &self.sources[si];
+        let sample = &source.samples[ri];
+        Some(HoveredRecord {
+            series: source.label.clone(),
+            x: sample.x,
+            timestamp: sample.x_label.clone(),
+            value: sample.value?,
+            unit: sample.unit.clone(),
+            mode: sample.mode.clone(),
+        })
     }
 
     #[allow(dead_code)]
@@ -723,6 +725,8 @@ fn poll_path_source(source: &mut ViewerSource) {
     if file_len < source.last_read_pos || replaced_in_place {
         source.last_read_pos = 0;
         source.records.clear();
+        source.mode_filter_initialized = false;
+        source.visible_modes.clear();
         refresh_source_metadata(source);
     }
 
