@@ -143,9 +143,11 @@ impl SettingsPanel {
                     // --- OBS Output ---
                     ui.collapsing("OBS Output", |ui| {
                         ui.label("MM file:");
+                        ui.checkbox(&mut config.multimeter_obs_enabled, "OBS output enabled");
                         file_picker_row(ui, &mut config.multimeter_output_file, "obs_mm_output.txt");
                         ui.add_space(4.0);
                         ui.label("USB-C file:");
+                        ui.checkbox(&mut config.usbc_obs_enabled, "OBS output enabled");
                         file_picker_row(ui, &mut config.usbc_output_file, "obs_usbc_output.txt");
                         ui.separator();
 

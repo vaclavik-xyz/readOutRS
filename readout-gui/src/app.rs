@@ -60,7 +60,9 @@ impl RuntimeHandle {
                     None
                 };
 
-                let mut mm_obs = if !config_clone.multimeter_output_file.is_empty() {
+                let mut mm_obs = if config_clone.multimeter_obs_enabled
+                    && !config_clone.multimeter_output_file.is_empty()
+                {
                     let mut writer = readout_persistence::obs_writer::ObsOutputWriter::new(
                         PathBuf::from(&config_clone.multimeter_output_file),
                     );
@@ -70,7 +72,9 @@ impl RuntimeHandle {
                     None
                 };
 
-                let mut usbc_obs = if !config_clone.usbc_output_file.is_empty() {
+                let mut usbc_obs = if config_clone.usbc_obs_enabled
+                    && !config_clone.usbc_output_file.is_empty()
+                {
                     let mut writer = readout_persistence::obs_writer::ObsOutputWriter::new(
                         PathBuf::from(&config_clone.usbc_output_file),
                     );
@@ -271,6 +275,44 @@ impl ReadOutApp {
         self.enqueue_config_save(self.config.clone());
     }
 
+    fn apply_device_recording_action(
+        &mut self,
+        action: widgets::device_section::DeviceRecordingAction,
+    ) {
+        let old_config = self.config.clone();
+        let changed = match action {
+            widgets::device_section::DeviceRecordingAction::ToggleCsvLogging(DeviceId::Multimeter) => {
+                self.config.multimeter_csv_logging_enabled =
+                    !self.config.multimeter_csv_logging_enabled;
+                true
+            }
+            widgets::device_section::DeviceRecordingAction::ToggleCsvLogging(DeviceId::UsbC) => {
+                self.config.usbc_csv_logging_enabled = !self.config.usbc_csv_logging_enabled;
+                true
+            }
+            widgets::device_section::DeviceRecordingAction::ToggleObsOutput(DeviceId::Multimeter) => {
+                self.config.multimeter_obs_enabled = !self.config.multimeter_obs_enabled;
+                true
+            }
+            widgets::device_section::DeviceRecordingAction::ToggleObsOutput(DeviceId::UsbC) => {
+                self.config.usbc_obs_enabled = !self.config.usbc_obs_enabled;
+                true
+            }
+            widgets::device_section::DeviceRecordingAction::None => false,
+        };
+
+        if changed {
+            let needs_restart =
+                self.runtime.is_some() && runtime_settings_changed(&old_config, &self.config);
+            if needs_restart {
+                self.restart_runtime();
+            } else {
+                self.state.log_capture_enabled = self.config.runtime_log_capture_enabled;
+            }
+            self.enqueue_config_save(self.config.clone());
+        }
+    }
+
     fn restart_runtime(&mut self) {
         if let Some(mut rt) = self.runtime.take() {
             rt.shutdown();
@@ -302,6 +344,11 @@ impl Drop for ReadOutApp {
 }
 
 fn runtime_settings_changed(old: &AppConfiguration, new: &AppConfiguration) -> bool {
+    let multimeter_obs_path_changed = old.multimeter_output_file != new.multimeter_output_file
+        && (old.multimeter_obs_enabled || new.multimeter_obs_enabled);
+    let usbc_obs_path_changed =
+        old.usbc_output_file != new.usbc_output_file && (old.usbc_obs_enabled || new.usbc_obs_enabled);
+
     old.multimeter_port != new.multimeter_port
         || old.usbc_port != new.usbc_port
         || old.multimeter_enabled != new.multimeter_enabled
@@ -319,8 +366,10 @@ fn runtime_settings_changed(old: &AppConfiguration, new: &AppConfiguration) -> b
         || old.multimeter_csv_log_file_path != new.multimeter_csv_log_file_path
         || old.usbc_csv_logging_enabled != new.usbc_csv_logging_enabled
         || old.usbc_csv_log_file_path != new.usbc_csv_log_file_path
-        || old.multimeter_output_file != new.multimeter_output_file
-        || old.usbc_output_file != new.usbc_output_file
+        || old.multimeter_obs_enabled != new.multimeter_obs_enabled
+        || old.usbc_obs_enabled != new.usbc_obs_enabled
+        || multimeter_obs_path_changed
+        || usbc_obs_path_changed
 }
 
 impl eframe::App for ReadOutApp {
@@ -487,8 +536,9 @@ impl eframe::App for ReadOutApp {
                     && !self.config.multimeter_csv_log_file_path.is_empty())
                     || (self.config.usbc_csv_logging_enabled
                         && !self.config.usbc_csv_log_file_path.is_empty());
-                let obs_active = !self.config.multimeter_output_file.is_empty()
-                    || !self.config.usbc_output_file.is_empty();
+                let obs_active = (self.config.multimeter_obs_enabled
+                    && !self.config.multimeter_output_file.is_empty())
+                    || (self.config.usbc_obs_enabled && !self.config.usbc_output_file.is_empty());
                 let title_state = widgets::toolbar::TitleBarState {
                     always_on_top: self.always_on_top,
                     csv_active,
@@ -519,10 +569,12 @@ impl eframe::App for ReadOutApp {
                         .copied()
                         .unwrap_or(AlarmState::None);
                     let mm_pipeline = self.state.chart_pipelines.get_mut(&DeviceId::Multimeter);
+                    let mm_csv_configured = !self.config.multimeter_csv_log_file_path.is_empty();
                     let mm_csv = self.config.multimeter_csv_logging_enabled
-                        && !self.config.multimeter_csv_log_file_path.is_empty();
-                    let mm_obs = !self.config.multimeter_output_file.is_empty();
-                    let (_, ta) = widgets::device_section::show(
+                        && mm_csv_configured;
+                    let mm_obs_configured = !self.config.multimeter_output_file.is_empty();
+                    let mm_obs = self.config.multimeter_obs_enabled && mm_obs_configured;
+                    let (_, ta, recording_action) = widgets::device_section::show(
                         ui,
                         DeviceId::Multimeter,
                         self.state.latest_measurement.get(&DeviceId::Multimeter),
@@ -532,9 +584,12 @@ impl eframe::App for ReadOutApp {
                         self.selected_range_idx,
                         self.usbc_metric,
                         &mut self.mm_chart_visible,
+                        mm_csv_configured,
                         mm_csv,
+                        mm_obs_configured,
                         mm_obs,
                     );
+                    self.apply_device_recording_action(recording_action);
                     if !matches!(ta, widgets::toolbar::ToolbarAction::None) {
                         toolbar_action = ta;
                     }
@@ -561,10 +616,12 @@ impl eframe::App for ReadOutApp {
                         .copied()
                         .unwrap_or(AlarmState::None);
                     let usbc_pipeline = self.state.usbc_chart_pipelines.get_mut(&self.usbc_metric);
+                    let usbc_csv_configured = !self.config.usbc_csv_log_file_path.is_empty();
                     let usbc_csv = self.config.usbc_csv_logging_enabled
-                        && !self.config.usbc_csv_log_file_path.is_empty();
-                    let usbc_obs = !self.config.usbc_output_file.is_empty();
-                    let (sa, _) = widgets::device_section::show(
+                        && usbc_csv_configured;
+                    let usbc_obs_configured = !self.config.usbc_output_file.is_empty();
+                    let usbc_obs = self.config.usbc_obs_enabled && usbc_obs_configured;
+                    let (sa, _, recording_action) = widgets::device_section::show(
                         ui,
                         DeviceId::UsbC,
                         self.state.latest_measurement.get(&DeviceId::UsbC),
@@ -574,9 +631,12 @@ impl eframe::App for ReadOutApp {
                         self.selected_range_idx,
                         self.usbc_metric,
                         &mut self.usbc_chart_visible,
+                        usbc_csv_configured,
                         usbc_csv,
+                        usbc_obs_configured,
                         usbc_obs,
                     );
+                    self.apply_device_recording_action(recording_action);
                     if !matches!(sa, widgets::device_section::SectionAction::None) {
                         section_action = sa;
                     }
@@ -690,5 +750,38 @@ mod tests {
         let [w, h] = initial_window_size();
         assert_eq!(w, WINDOW_WIDTH);
         assert_eq!(h, WINDOW_HEIGHT_BOTH);
+    }
+
+    #[test]
+    fn runtime_settings_changed_when_obs_enabled_flags_change() {
+        let old = AppConfiguration::default();
+
+        let mut multimeter_changed = AppConfiguration::default();
+        multimeter_changed.multimeter_obs_enabled = !old.multimeter_obs_enabled;
+        assert!(runtime_settings_changed(&old, &multimeter_changed));
+
+        let mut usbc_changed = AppConfiguration::default();
+        usbc_changed.usbc_obs_enabled = !old.usbc_obs_enabled;
+        assert!(runtime_settings_changed(&old, &usbc_changed));
+    }
+
+    #[test]
+    fn runtime_settings_changed_ignores_obs_path_changes_when_disabled() {
+        let mut old = AppConfiguration::default();
+        let mut new = AppConfiguration::default();
+
+        old.multimeter_output_file = "old-mm.txt".to_string();
+        new.multimeter_output_file = "new-mm.txt".to_string();
+        old.multimeter_obs_enabled = false;
+        new.multimeter_obs_enabled = false;
+        assert!(!runtime_settings_changed(&old, &new));
+
+        old = AppConfiguration::default();
+        new = AppConfiguration::default();
+        old.usbc_output_file = "old-usbc.txt".to_string();
+        new.usbc_output_file = "new-usbc.txt".to_string();
+        old.usbc_obs_enabled = false;
+        new.usbc_obs_enabled = false;
+        assert!(!runtime_settings_changed(&old, &new));
     }
 }

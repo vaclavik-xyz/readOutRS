@@ -14,10 +14,18 @@ pub enum SectionAction {
     SetUsbcMetric(UsbCMetric),
 }
 
+#[derive(Default)]
+pub enum DeviceRecordingAction {
+    #[default]
+    None,
+    ToggleCsvLogging(DeviceId),
+    ToggleObsOutput(DeviceId),
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
-    device: DeviceId,
+    device_id: DeviceId,
     measurement: Option<&DeviceMeasurement>,
     connection: &ConnectionState,
     alarm: AlarmState,
@@ -25,11 +33,14 @@ pub fn show(
     selected_range_idx: usize,
     usbc_metric: UsbCMetric,
     chart_visible: &mut bool,
+    csv_configured: bool,
     csv_active: bool,
+    obs_configured: bool,
     obs_active: bool,
-) -> (SectionAction, super::toolbar::ToolbarAction) {
+) -> (SectionAction, super::toolbar::ToolbarAction, DeviceRecordingAction) {
     let mut action = SectionAction::None;
     let mut toolbar_action = super::toolbar::ToolbarAction::None;
+    let mut recording_action = DeviceRecordingAction::None;
 
     // Scale value fonts with window width (base design = 340px)
     let scale = (ui.available_width() / 320.0).clamp(1.0, 2.5);
@@ -37,7 +48,7 @@ pub fn show(
     let current_size = 22.0 * scale;
     let chart_height = 80.0 * scale;
 
-    let title = match device {
+    let title = match device_id {
         DeviceId::Multimeter => "Multimeter",
         DeviceId::UsbC => "USB-C",
     };
@@ -61,21 +72,65 @@ pub fn show(
                         .size(11.0)
                         .color(theme::text_secondary(ui)),
                 );
-                if csv_active {
-                    ui.label(
-                        egui::RichText::new(egui_phosphor::regular::RECORD)
-                            .size(10.0)
-                            .color(crate::theme::colors::ERROR),
-                    )
-                    .on_hover_text("CSV logging");
+                if csv_configured {
+                    let (color, hover_text, action) = if csv_active {
+                        (
+                            crate::theme::colors::ERROR,
+                            "Stop CSV logging",
+                            DeviceRecordingAction::ToggleCsvLogging(device_id),
+                        )
+                    } else {
+                        (
+                            theme::text_secondary(ui),
+                            "Start CSV logging",
+                            DeviceRecordingAction::ToggleCsvLogging(device_id),
+                        )
+                    };
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new(egui_phosphor::regular::RECORD)
+                                    .size(10.0)
+                                    .color(color),
+                            )
+                            .frame(false)
+                            .min_size(egui::vec2(14.0, 14.0)),
+                        )
+                        .on_hover_text(hover_text)
+                        .clicked()
+                    {
+                        recording_action = action;
+                    }
                 }
-                if obs_active {
-                    ui.label(
-                        egui::RichText::new(egui_phosphor::regular::BROADCAST)
-                            .size(10.0)
-                            .color(crate::theme::colors::CONNECTED),
-                    )
-                    .on_hover_text("OBS output");
+                if obs_configured {
+                    let (color, hover_text, action) = if obs_active {
+                        (
+                            crate::theme::colors::CONNECTED,
+                            "Stop OBS output",
+                            DeviceRecordingAction::ToggleObsOutput(device_id),
+                        )
+                    } else {
+                        (
+                            theme::text_secondary(ui),
+                            "Start OBS output",
+                            DeviceRecordingAction::ToggleObsOutput(device_id),
+                        )
+                    };
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new(egui_phosphor::regular::BROADCAST)
+                                    .size(10.0)
+                                    .color(color),
+                            )
+                            .frame(false)
+                            .min_size(egui::vec2(14.0, 14.0)),
+                        )
+                        .on_hover_text(hover_text)
+                        .clicked()
+                    {
+                        recording_action = action;
+                    }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     connection_led(ui, connection);
@@ -99,7 +154,7 @@ pub fn show(
                     {
                         *chart_visible = !*chart_visible;
                     }
-                    if device == DeviceId::Multimeter {
+                    if device_id == DeviceId::Multimeter {
                         ui.add_space(4.0);
                         let ta = super::toolbar::mm_inline_control(ui);
                         if !matches!(ta, super::toolbar::ToolbarAction::None) {
@@ -124,7 +179,7 @@ pub fn show(
                         .family(egui::FontFamily::Monospace),
                 );
 
-                if device != DeviceId::UsbC {
+                if device_id != DeviceId::UsbC {
                     ui.label(
                         egui::RichText::new(&m.mode_string)
                             .size(10.0)
@@ -132,7 +187,7 @@ pub fn show(
                     );
                 }
 
-                if device == DeviceId::UsbC {
+                if device_id == DeviceId::UsbC {
                     if let Some(current) = m.secondary_value {
                         ui.label(
                             egui::RichText::new(format_si(current, "A"))
@@ -235,11 +290,11 @@ pub fn show(
                 return;
             }
             ui.add_space(4.0);
-            let line_color = match device {
+            let line_color = match device_id {
                 DeviceId::Multimeter => colors::MM_LINE,
                 DeviceId::UsbC => colors::USBC_LINE,
             };
-            let chart_id = match device {
+            let chart_id = match device_id {
                 DeviceId::Multimeter => "mm_chart",
                 DeviceId::UsbC => "usbc_chart",
             };
@@ -327,7 +382,7 @@ pub fn show(
             });
         });
 
-    (action, toolbar_action)
+    (action, toolbar_action, recording_action)
 }
 
 fn connection_led(ui: &mut egui::Ui, state: &ConnectionState) {
