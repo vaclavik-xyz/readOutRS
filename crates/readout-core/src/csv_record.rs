@@ -59,7 +59,11 @@ pub fn parse_row(line: &str) -> Option<CsvRecord> {
 pub fn find_mode_changes(records: &[CsvRecord]) -> Vec<usize> {
     let mut changes = Vec::new();
     for i in 1..records.len() {
-        if records[i].mode != records[i - 1].mode {
+        // Only compare mode within the same device to avoid false changes
+        // at device boundaries in multi-device CSV files
+        if records[i].device == records[i - 1].device
+            && records[i].mode != records[i - 1].mode
+        {
             changes.push(i);
         }
     }
