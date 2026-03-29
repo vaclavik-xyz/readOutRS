@@ -18,6 +18,7 @@ pub enum ToolbarAction {
     TogglePause,
     ClearCharts,
     SetTimeRange(usize),
+    OpenCsvViewer,
     OpenSettings,
     ToggleAlwaysOnTop,
     OpenMeterControl,
@@ -27,8 +28,6 @@ pub enum ToolbarAction {
 
 pub struct TitleBarState {
     pub always_on_top: bool,
-    pub csv_active: bool,
-    pub obs_active: bool,
     pub selected_range_idx: usize,
     pub show_mm: bool,
     pub show_usbc: bool,
@@ -77,6 +76,14 @@ pub fn show_title_bar(ui: &mut egui::Ui, state: &TitleBarState) -> ToolbarAction
                 .clicked()
             {
                 action = ToolbarAction::ToggleAlwaysOnTop;
+            }
+
+            if ui
+                .button(egui::RichText::new(icons::CHART_LINE).size(14.0))
+                .on_hover_text("CSV Viewer (Cmd+L)")
+                .clicked()
+            {
+                action = ToolbarAction::OpenCsvViewer;
             }
 
             if ui

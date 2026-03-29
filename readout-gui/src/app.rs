@@ -177,6 +177,7 @@ pub struct ReadOutApp {
     audio: crate::audio::AlarmAudio,
     running: bool,
     always_on_top: bool,
+    csv_viewer: widgets::csv_viewer::CsvViewerWindow,
     show_mm: bool,
     show_usbc: bool,
     usbc_metric: UsbCMetric,
@@ -245,6 +246,7 @@ impl ReadOutApp {
             audio: crate::audio::AlarmAudio::new(),
             running: !first_run,
             always_on_top: config.always_on_top,
+            csv_viewer: widgets::csv_viewer::CsvViewerWindow::new(),
             show_mm: config.show_mm,
             show_usbc: config.show_usbc,
             usbc_metric: UsbCMetric::Voltage,
@@ -424,6 +426,9 @@ impl eframe::App for ReadOutApp {
             if i.modifiers.command && i.key_pressed(egui::Key::M) {
                 self.meter_control.open = !self.meter_control.open;
             }
+            if i.modifiers.command && i.key_pressed(egui::Key::L) {
+                self.csv_viewer.open = true;
+            }
             if i.modifiers.command && i.key_pressed(egui::Key::K) {
                 for pipeline in self.state.chart_pipelines.values_mut() {
                     pipeline.clear();
@@ -523,6 +528,8 @@ impl eframe::App for ReadOutApp {
             }
         }
 
+        self.csv_viewer.show(ctx, &self.config);
+
         // --- Main content ---
         let mut toolbar_action = widgets::toolbar::ToolbarAction::None;
         let mut section_action = widgets::device_section::SectionAction::None;
@@ -532,17 +539,8 @@ impl eframe::App for ReadOutApp {
                 let content_start = ui.cursor().top();
 
                 // Title bar
-                let csv_active = (self.config.multimeter_csv_logging_enabled
-                    && !self.config.multimeter_csv_log_file_path.is_empty())
-                    || (self.config.usbc_csv_logging_enabled
-                        && !self.config.usbc_csv_log_file_path.is_empty());
-                let obs_active = (self.config.multimeter_obs_enabled
-                    && !self.config.multimeter_output_file.is_empty())
-                    || (self.config.usbc_obs_enabled && !self.config.usbc_output_file.is_empty());
                 let title_state = widgets::toolbar::TitleBarState {
                     always_on_top: self.always_on_top,
-                    csv_active,
-                    obs_active,
                     selected_range_idx: self.selected_range_idx,
                     show_mm: self.show_mm,
                     show_usbc: self.show_usbc,
@@ -689,6 +687,9 @@ impl eframe::App for ReadOutApp {
             }
             widgets::toolbar::ToolbarAction::SetTimeRange(idx) => {
                 self.selected_range_idx = idx;
+            }
+            widgets::toolbar::ToolbarAction::OpenCsvViewer => {
+                self.csv_viewer.open = true;
             }
             widgets::toolbar::ToolbarAction::OpenSettings => {
                 self.settings_panel.open = true;
