@@ -2,6 +2,7 @@ use egui_phosphor::regular as icons;
 use std::time::Duration;
 
 pub const RANGE_OPTIONS: &[(Duration, &str)] = &[
+    (Duration::from_secs(10), "10s"),
     (Duration::from_secs(30), "30s"),
     (Duration::from_secs(60), "1m"),
     (Duration::from_secs(120), "2m"),
@@ -156,5 +157,16 @@ pub fn mm_inline_control(ui: &mut egui::Ui) -> ToolbarAction {
         ToolbarAction::OpenMeterControl
     } else {
         ToolbarAction::None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RANGE_OPTIONS;
+    use std::time::Duration;
+
+    #[test]
+    fn range_options_start_with_ten_seconds() {
+        assert_eq!(RANGE_OPTIONS[0], (Duration::from_secs(10), "10s"));
     }
 }

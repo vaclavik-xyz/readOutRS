@@ -250,7 +250,7 @@ impl ReadOutApp {
             show_mm: config.show_mm,
             show_usbc: config.show_usbc,
             usbc_metric: UsbCMetric::Voltage,
-            selected_range_idx: 0,
+            selected_range_idx: 1,
             mm_chart_visible: true,
             usbc_chart_visible: true,
             config_path,
@@ -748,6 +748,7 @@ impl eframe::App for ReadOutApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::widgets::toolbar::RANGE_OPTIONS;
 
     #[test]
     fn initial_window_size_dimensions() {
@@ -787,5 +788,19 @@ mod tests {
         old.usbc_obs_enabled = false;
         new.usbc_obs_enabled = false;
         assert!(!runtime_settings_changed(&old, &new));
+    }
+
+    #[test]
+    fn app_defaults_to_thirty_seconds_even_with_shorter_ranges_available() {
+        let ctx = egui::Context::default();
+        let app = ReadOutApp::new(
+            AppConfiguration::default(),
+            std::path::PathBuf::from("config.toml"),
+            true,
+            &ctx,
+        );
+
+        assert_eq!(RANGE_OPTIONS[0].1, "10s");
+        assert_eq!(RANGE_OPTIONS[app.selected_range_idx].1, "30s");
     }
 }
