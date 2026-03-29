@@ -57,15 +57,16 @@ pub fn parse_row(line: &str) -> Option<CsvRecord> {
 }
 
 pub fn find_mode_changes(records: &[CsvRecord]) -> Vec<usize> {
+    use std::collections::HashMap;
     let mut changes = Vec::new();
-    for i in 1..records.len() {
-        // Only compare mode within the same device to avoid false changes
-        // at device boundaries in multi-device CSV files
-        if records[i].device == records[i - 1].device
-            && records[i].mode != records[i - 1].mode
-        {
-            changes.push(i);
+    let mut last_mode: HashMap<&str, &str> = HashMap::new();
+    for (i, rec) in records.iter().enumerate() {
+        if let Some(&prev) = last_mode.get(rec.device.as_str()) {
+            if prev != rec.mode {
+                changes.push(i);
+            }
         }
+        last_mode.insert(&rec.device, &rec.mode);
     }
     changes
 }

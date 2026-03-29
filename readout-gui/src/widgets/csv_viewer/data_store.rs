@@ -484,36 +484,37 @@ impl CsvDataStore {
     }
 
     pub fn nearest_visible_sample(&self, x: f64, y: f64) -> Option<HoveredRecord> {
-        self.sources
-            .iter()
-            .filter(|source| source.visible)
-            .flat_map(|source| {
-                source.samples.iter().filter_map(move |sample| {
-                    let value = sample.value?;
-                    if !source.visible_modes.contains(&sample.mode) {
-                        return None;
-                    }
-
-                    Some((
-                        (sample.x - x).abs(),
-                        (value - y).abs(),
-                        HoveredRecord {
-                            series: source.label.clone(),
-                            x: sample.x,
-                            timestamp: sample.x_label.clone(),
-                            value,
-                            unit: sample.unit.clone(),
-                            mode: sample.mode.clone(),
-                        },
-                    ))
-                })
-            })
-            .min_by(|left, right| {
-                left.0
-                    .total_cmp(&right.0)
-                    .then_with(|| left.1.total_cmp(&right.1))
-            })
-            .map(|(_, _, hovered)| hovered)
+        // Two-pass: find closest (source_idx, sample_idx) first, then construct record
+        let mut best: Option<(f64, f64, usize, usize)> = None; // (x_dist, y_dist, si, ri)
+        for (si, source) in self.sources.iter().enumerate() {
+            if !source.visible {
+                continue;
+            }
+            for (ri, sample) in source.samples.iter().enumerate() {
+                let Some(value) = sample.value else { continue };
+                if !source.visible_modes.contains(&sample.mode) {
+                    continue;
+                }
+                let x_dist = (sample.x - x).abs();
+                let y_dist = (value - y).abs();
+                if best.map_or(true, |(bx, by, _, _)| {
+                    x_dist < bx || (x_dist == bx && y_dist < by)
+                }) {
+                    best = Some((x_dist, y_dist, si, ri));
+                }
+            }
+        }
+        let (_, _, si, ri) = best?;
+        let source = &self.sources[si];
+        let sample = &source.samples[ri];
+        Some(HoveredRecord {
+            series: source.label.clone(),
+            x: sample.x,
+            timestamp: sample.x_label.clone(),
+            value: sample.value?,
+            unit: sample.unit.clone(),
+            mode: sample.mode.clone(),
+        })
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
@@ -841,7 +842,28 @@ fn push_runtime_sample(source: &mut ViewerSource, measurement: &DeviceMeasuremen
         is_short: measurement.is_short,
     });
     source.status = SourceStatus::Ready;
-    refresh_source_metadata(source);
+
+    // Incremental metadata update — only check the new sample for mode changes
+    let len = source.samples.len();
+    if len >= 2 {
+        let prev = &source.samples[len - 2];
+        let curr = &source.samples[len - 1];
+        if prev.device == curr.device && prev.mode != curr.mode {
+            source.mode_changes.push(len - 1);
+        }
+    }
+    // Add new mode if not yet seen
+    let new_mode = &source.samples[len - 1].mode;
+    if !source.modes.contains(new_mode) {
+        source.modes.push(new_mode.clone());
+        source.modes.sort();
+        if !source.mode_filter_initialized {
+            source.visible_modes.insert(new_mode.clone());
+        }
+    }
+    if !source.mode_filter_initialized {
+        source.mode_filter_initialized = true;
+    }
 }
 
 fn normalize_samples(records: &[CsvRecord], x_domain: XDomain) -> Vec<ViewerSample> {
@@ -996,8 +1018,8 @@ fn format_epoch_rfc3339(epoch: f64) -> String {
 
     Utc.timestamp_opt(seconds, nanos)
         .single()
-        .expect("valid runtime timestamp")
-        .to_rfc3339()
+        .map(|dt| dt.to_rfc3339())
+        .unwrap_or_else(|| format!("{epoch:.3}"))
 }
 
 pub(super) fn record_x(record: &CsvRecord, idx: usize) -> f64 {
