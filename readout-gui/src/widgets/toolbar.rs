@@ -48,11 +48,6 @@ pub fn show_title_bar(ui: &mut egui::Ui, state: &TitleBarState) -> ToolbarAction
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
 
-        // Leave space for macOS traffic lights
-        if cfg!(target_os = "macos") {
-            ui.add_space(68.0);
-        }
-
         // ── Device toggles ──
         if ui
             .selectable_label(state.show_mm, egui::RichText::new("MM").size(10.0).strong())

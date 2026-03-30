@@ -52,10 +52,10 @@ fn main() {
     let mut viewport = egui::ViewportBuilder::default()
         .with_inner_size(app::initial_window_size())
         .with_resizable(true)
-        .with_titlebar_shown(false)
-        .with_title_shown(false)
-        .with_fullsize_content_view(true)
-        .with_movable_by_background(true)
+        .with_titlebar_shown(true)
+        .with_title_shown(true)
+        .with_fullsize_content_view(false)
+        .with_movable_by_background(false)
         .with_icon(icon);
     if always_on_top {
         viewport = viewport.with_always_on_top();
