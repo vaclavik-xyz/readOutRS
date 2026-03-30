@@ -553,6 +553,7 @@ impl eframe::App for ReadOutApp {
                     selected_range_idx: self.selected_range_idx,
                     show_mm: self.show_mm,
                     show_usbc: self.show_usbc,
+                    paused: self.state.paused,
                 };
                 let ta = widgets::toolbar::show_title_bar(ui, &title_state);
                 if !matches!(ta, widgets::toolbar::ToolbarAction::None) {
