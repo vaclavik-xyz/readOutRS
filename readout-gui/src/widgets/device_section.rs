@@ -37,6 +37,7 @@ pub fn show(
     csv_active: bool,
     obs_configured: bool,
     obs_active: bool,
+    energy_elapsed: Option<Duration>,
 ) -> (
     SectionAction,
     super::toolbar::ToolbarAction,
@@ -218,6 +219,25 @@ pub fn show(
                             if let Some(mah) = m.energy_mah {
                                 ui.label(
                                     egui::RichText::new(format!("· {mah:.1} mAh"))
+                                        .size(11.0)
+                                        .color(theme::text_secondary(ui)),
+                                );
+                            }
+                            if let Some(elapsed) = energy_elapsed {
+                                let secs = elapsed.as_secs();
+                                let label = if secs >= 3600 {
+                                    format!(
+                                        "· {}h {:02}m",
+                                        secs / 3600,
+                                        (secs % 3600) / 60
+                                    )
+                                } else if secs >= 60 {
+                                    format!("· {}m {:02}s", secs / 60, secs % 60)
+                                } else {
+                                    format!("· {secs}s")
+                                };
+                                ui.label(
+                                    egui::RichText::new(label)
                                         .size(11.0)
                                         .color(theme::text_secondary(ui)),
                                 );

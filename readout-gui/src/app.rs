@@ -187,6 +187,7 @@ pub struct ReadOutApp {
     selected_range_idx: usize,
     mm_chart_visible: bool,
     usbc_chart_visible: bool,
+    usbc_energy_start: std::time::Instant,
     config: AppConfiguration,
     config_path: PathBuf,
     ctx: egui::Context,
@@ -256,6 +257,7 @@ impl ReadOutApp {
             selected_range_idx: 1,
             mm_chart_visible: true,
             usbc_chart_visible: true,
+            usbc_energy_start: std::time::Instant::now(),
             config_path,
             ctx: ctx.clone(),
             applied_theme: None,
@@ -656,6 +658,7 @@ impl eframe::App for ReadOutApp {
                         mm_csv,
                         mm_obs_configured,
                         mm_obs,
+                        None,
                     );
                     self.apply_device_recording_action(recording_action);
                     if !matches!(ta, widgets::toolbar::ToolbarAction::None) {
@@ -688,6 +691,7 @@ impl eframe::App for ReadOutApp {
                     let usbc_csv = self.config.usbc_csv_logging_enabled && usbc_csv_configured;
                     let usbc_obs_configured = !self.config.usbc_output_file.is_empty();
                     let usbc_obs = self.config.usbc_obs_enabled && usbc_obs_configured;
+                    let energy_elapsed = Some(self.usbc_energy_start.elapsed());
                     let (sa, _, recording_action) = widgets::device_section::show(
                         ui,
                         DeviceId::UsbC,
@@ -702,6 +706,7 @@ impl eframe::App for ReadOutApp {
                         usbc_csv,
                         usbc_obs_configured,
                         usbc_obs,
+                        energy_elapsed,
                     );
                     self.apply_device_recording_action(recording_action);
                     if !matches!(sa, widgets::device_section::SectionAction::None) {
@@ -752,6 +757,7 @@ impl eframe::App for ReadOutApp {
                         device: DeviceId::UsbC,
                     });
                 }
+                self.usbc_energy_start = std::time::Instant::now();
             }
             widgets::device_section::SectionAction::SetUsbcMetric(metric) => {
                 self.usbc_metric = metric;
