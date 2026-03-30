@@ -29,39 +29,6 @@ fn load_icon() -> egui::IconData {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct MainViewportChrome {
-    titlebar_shown: bool,
-    title_shown: bool,
-    fullsize_content_view: bool,
-    movable_by_background: bool,
-}
-
-fn main_viewport_chrome() -> MainViewportChrome {
-    MainViewportChrome {
-        titlebar_shown: true,
-        title_shown: true,
-        fullsize_content_view: false,
-        movable_by_background: false,
-    }
-}
-
-fn build_main_viewport(icon: egui::IconData, always_on_top: bool) -> egui::ViewportBuilder {
-    let chrome = main_viewport_chrome();
-    let mut viewport = egui::ViewportBuilder::default()
-        .with_inner_size(app::initial_window_size())
-        .with_resizable(true)
-        .with_titlebar_shown(chrome.titlebar_shown)
-        .with_title_shown(chrome.title_shown)
-        .with_fullsize_content_view(chrome.fullsize_content_view)
-        .with_movable_by_background(chrome.movable_by_background)
-        .with_icon(icon);
-    if always_on_top {
-        viewport = viewport.with_always_on_top();
-    }
-    viewport
-}
-
 fn main() {
     tracing_subscriber::fmt::init();
 
@@ -82,8 +49,19 @@ fn main() {
 
     let icon = load_icon();
     let always_on_top = config.always_on_top;
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_inner_size(app::initial_window_size())
+        .with_resizable(true)
+        .with_titlebar_shown(false)
+        .with_title_shown(false)
+        .with_fullsize_content_view(true)
+        .with_movable_by_background(true)
+        .with_icon(icon);
+    if always_on_top {
+        viewport = viewport.with_always_on_top();
+    }
     let options = eframe::NativeOptions {
-        viewport: build_main_viewport(icon, always_on_top),
+        viewport,
         ..Default::default()
     };
 
@@ -104,22 +82,4 @@ fn main() {
         }),
     )
     .expect("eframe run");
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{MainViewportChrome, main_viewport_chrome};
-
-    #[test]
-    fn native_title_bar_main_window_chrome_uses_system_title_bar() {
-        assert_eq!(
-            main_viewport_chrome(),
-            MainViewportChrome {
-                titlebar_shown: true,
-                title_shown: true,
-                fullsize_content_view: false,
-                movable_by_background: false,
-            }
-        );
-    }
 }
