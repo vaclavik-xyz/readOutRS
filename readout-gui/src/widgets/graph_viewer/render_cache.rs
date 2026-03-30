@@ -142,6 +142,11 @@ mod tests {
     }
 
     #[test]
+    fn spans_compatible_both_zero() {
+        assert!(spans_compatible(0.0, 0.0));
+    }
+
+    #[test]
     fn get_series_returns_none_on_empty_cache() {
         let cache = RenderCache::new();
         let result = cache.get_series(42, 1, Some((0.0, 100.0)), 100.0, 256);
