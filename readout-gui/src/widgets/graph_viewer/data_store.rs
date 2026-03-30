@@ -1,7 +1,5 @@
-use super::source_model::{
-    SourceStatus, ViewerSample, ViewerSourceId, ViewerSourceKind, XDomain,
-};
 use super::render_sampling::downsample_visible_points;
+use super::source_model::{SourceStatus, ViewerSample, ViewerSourceId, ViewerSourceKind, XDomain};
 use chrono::{TimeZone, Utc};
 use readout_core::csv_record::{CsvRecord, find_mode_changes, parse_csv_file, parse_row};
 use readout_core::downsampling::DataPoint;
@@ -25,6 +23,7 @@ const COLORS: &[[u8; 3]] = &[
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct HoveredRecord {
+    pub source_id: ViewerSourceId,
     pub series: String,
     pub x: f64,
     pub timestamp: String,
@@ -421,7 +420,8 @@ impl CsvDataStore {
                             device: source_device
                         } if source_device == *device
                     ) {
-                        source.status = runtime_status_for_connection(state, !source.samples.is_empty());
+                        source.status =
+                            runtime_status_for_connection(state, !source.samples.is_empty());
                     }
                 }
             }
@@ -522,9 +522,7 @@ impl CsvDataStore {
                 }
                 let x_dist = (sample.x - x).abs();
                 let y_dist = (value - y).abs();
-                if best.is_none_or(|(bx, by, _, _)| {
-                    x_dist < bx || (x_dist == bx && y_dist < by)
-                }) {
+                if best.is_none_or(|(bx, by, _, _)| x_dist < bx || (x_dist == bx && y_dist < by)) {
                     best = Some((x_dist, y_dist, si, ri));
                 }
             }
@@ -533,6 +531,7 @@ impl CsvDataStore {
         let source = &self.sources[si];
         let sample = &source.samples[ri];
         Some(HoveredRecord {
+            source_id: source.id,
             series: source.label.clone(),
             x: sample.x,
             timestamp: sample.x_label.clone(),
@@ -564,6 +563,29 @@ impl CsvDataStore {
         let source = &self.sources[si];
         let sample = &source.samples[ri];
         Some(HoveredRecord {
+            source_id: source.id,
+            series: source.label.clone(),
+            x: sample.x,
+            timestamp: sample.x_label.clone(),
+            value: sample.value?,
+            unit: sample.unit.clone(),
+            mode: sample.mode.clone(),
+        })
+    }
+
+    pub fn latest_visible_live_sample(&self, source_id: ViewerSourceId) -> Option<HoveredRecord> {
+        let source = self.source_by_id(source_id)?;
+        if !source.is_live || !source.visible {
+            return None;
+        }
+
+        let sample =
+            source.samples.iter().rev().find(|sample| {
+                sample.value.is_some() && source.visible_modes.contains(&sample.mode)
+            })?;
+
+        Some(HoveredRecord {
+            source_id: source.id,
             series: source.label.clone(),
             x: sample.x,
             timestamp: sample.x_label.clone(),
@@ -688,7 +710,9 @@ impl CsvDataStore {
     }
 
     fn source_index(&self, source_id: ViewerSourceId) -> Option<usize> {
-        self.sources.iter().position(|source| source.id == source_id)
+        self.sources
+            .iter()
+            .position(|source| source.id == source_id)
     }
 
     #[cfg(test)]
@@ -845,12 +869,10 @@ fn refresh_source_metadata(source: &mut ViewerSource) {
 }
 
 fn push_runtime_sample(source: &mut ViewerSource, measurement: &DeviceMeasurement) {
-    let anchor = source
-        .runtime_anchor
-        .get_or_insert_with(|| RuntimeAnchor {
-            first_monotonic: measurement.timestamp,
-            first_wall_clock_epoch: utc_now_epoch(),
-        });
+    let anchor = source.runtime_anchor.get_or_insert_with(|| RuntimeAnchor {
+        first_monotonic: measurement.timestamp,
+        first_wall_clock_epoch: utc_now_epoch(),
+    });
     let x = anchor.first_wall_clock_epoch
         + measurement
             .timestamp
@@ -945,9 +967,7 @@ fn find_mode_changes_in_samples(samples: &[ViewerSample]) -> Vec<usize> {
 }
 
 fn source_kind_for_path(path: &Path, records: &[CsvRecord], is_live: bool) -> ViewerSourceKind {
-    if is_live
-        && let Some(device) = guess_device_id(records, path)
-    {
+    if is_live && let Some(device) = guess_device_id(records, path) {
         return ViewerSourceKind::LiveCsvTail {
             device,
             path: path.to_path_buf(),
@@ -971,7 +991,9 @@ fn guess_device_id(records: &[CsvRecord], path: &Path) -> Option<DeviceId> {
     }
 
     let path_string = path.to_string_lossy().to_ascii_lowercase();
-    if path_string.contains("multimeter") || path_string.contains("meter") || path_string.contains("mm")
+    if path_string.contains("multimeter")
+        || path_string.contains("meter")
+        || path_string.contains("mm")
     {
         return Some(DeviceId::Multimeter);
     }
@@ -1092,8 +1114,7 @@ mod tests {
     }
 
     fn build_dense_live_csv() -> String {
-        let mut csv =
-            "timestamp,device,value,unit,mode,is_overload,is_open,is_short\n".to_owned();
+        let mut csv = "timestamp,device,value,unit,mode,is_overload,is_open,is_short\n".to_owned();
 
         for second in 0..=95 {
             csv.push_str(&format!(
@@ -1101,13 +1122,7 @@ mod tests {
             ));
         }
 
-        for (second, value) in [
-            (96, 0.0),
-            (97, 1.5),
-            (98, 0.5),
-            (99, 2.0),
-            (100, 1.0),
-        ] {
+        for (second, value) in [(96, 0.0), (97, 1.5), (98, 0.5), (99, 2.0), (100, 1.0)] {
             csv.push_str(&format!(
                 "1970-01-01T00:01:{second:02}Z,Multimeter,{value},V,DCV,false,false,false\n"
             ));
@@ -1193,7 +1208,10 @@ mod tests {
         });
 
         let rev_after = store.source_by_id(id).unwrap().render_revision;
-        assert!(rev_after > rev_before, "revision must increase after sample push");
+        assert!(
+            rev_after > rev_before,
+            "revision must increase after sample push"
+        );
     }
 
     #[test]
@@ -1206,7 +1224,10 @@ mod tests {
         store.set_mode_visible("DCV", false);
 
         let rev_after = store.source_by_id(id).unwrap().render_revision;
-        assert!(rev_after > rev_before, "revision must increase after mode visibility change");
+        assert!(
+            rev_after > rev_before,
+            "revision must increase after mode visibility change"
+        );
     }
 
     #[test]
@@ -1418,7 +1439,9 @@ mod tests {
         let mut store = CsvDataStore::new();
         store.load_csv_file(path.clone(), false).unwrap();
 
-        let err = store.attach_runtime_device(DeviceId::Multimeter).unwrap_err();
+        let err = store
+            .attach_runtime_device(DeviceId::Multimeter)
+            .unwrap_err();
         assert!(err.to_string().contains("incompatible time axis"));
         assert_eq!(store.sources()[0].x_domain, XDomain::SequenceIndex);
 
@@ -1485,7 +1508,8 @@ mod tests {
             .attach_live_csv(DeviceId::Multimeter, path.clone())
             .expect("attach live csv");
 
-        fs::write(&path, csv_with_value("2026-03-29T10:00:10Z", 9.0)).expect("truncate and rewrite csv");
+        fs::write(&path, csv_with_value("2026-03-29T10:00:10Z", 9.0))
+            .expect("truncate and rewrite csv");
 
         store.poll_live_sources();
 
@@ -1535,10 +1559,7 @@ mod tests {
             value: second,
         });
 
-        let rows = store.export_rows(Some(selection_for_last_runtime_point(
-            &store,
-            source_id,
-        )));
+        let rows = store.export_rows(Some(selection_for_last_runtime_point(&store, source_id)));
 
         assert_eq!(rows.len(), 1);
         assert!(!rows[0].timestamp.is_empty());
@@ -1547,10 +1568,7 @@ mod tests {
         assert!(all_rows[0].timestamp < all_rows[1].timestamp);
     }
 
-    fn selection_for_last_runtime_point(
-        store: &CsvDataStore,
-        source_id: u64,
-    ) -> (f64, f64) {
+    fn selection_for_last_runtime_point(store: &CsvDataStore, source_id: u64) -> (f64, f64) {
         let points = store.query_points(source_id, 32);
         let last_x = points.last().expect("runtime point").0.as_secs_f64();
         (last_x - 0.001, last_x + 0.001)
@@ -1584,5 +1602,44 @@ mod tests {
         let hovered = store.nearest_visible_sample(100.0, 8.8).unwrap();
         assert_eq!(hovered.series, "USB-C Live");
         assert_eq!(hovered.value, 9.0);
+    }
+
+    #[test]
+    fn latest_visible_live_sample_returns_requested_source_not_global_latest() {
+        let mut store = CsvDataStore::new();
+        let mm = store.attach_runtime_device(DeviceId::Multimeter).unwrap();
+        let usbc = store.attach_runtime_device(DeviceId::UsbC).unwrap();
+
+        store.push_test_sample(mm, 100.0, Some(1.0), "V", "DCV");
+        store.push_test_sample(mm, 200.0, Some(2.0), "V", "DCV");
+        store.push_test_sample(usbc, 150.0, Some(9.0), "V", "DCV");
+
+        let hovered = store
+            .latest_visible_live_sample(usbc)
+            .expect("latest visible sample for hovered source");
+
+        assert_eq!(hovered.source_id, usbc);
+        assert_eq!(hovered.series, "USB-C Live");
+        assert_eq!(hovered.value, 9.0);
+        assert_eq!(hovered.x, 150.0);
+    }
+
+    #[test]
+    fn latest_visible_live_sample_ignores_hidden_modes() {
+        let mut store = CsvDataStore::new();
+        let source_id = store.attach_runtime_device(DeviceId::Multimeter).unwrap();
+
+        store.push_test_sample(source_id, 100.0, Some(1.0), "V", "DCV");
+        store.push_test_sample(source_id, 101.0, Some(9.0), "V", "ACV");
+        store.set_mode_visible("ACV", false);
+
+        let hovered = store
+            .latest_visible_live_sample(source_id)
+            .expect("latest visible sample after hidden mode skipped");
+
+        assert_eq!(hovered.source_id, source_id);
+        assert_eq!(hovered.value, 1.0);
+        assert_eq!(hovered.mode, "DCV");
+        assert_eq!(hovered.x, 100.0);
     }
 }

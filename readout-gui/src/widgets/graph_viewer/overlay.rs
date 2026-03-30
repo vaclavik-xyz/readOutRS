@@ -1,4 +1,4 @@
-use super::info_bar::{CursorInfo, MeasurementDelta, SelectionStats};
+use super::info_bar::{self, CursorInfo, MeasurementDelta, SelectionStats};
 use egui::{Align2, Color32, Key, Stroke};
 use egui_plot::{HLine, Line, LineStyle, PlotPoint, PlotUi, Polygon, Text, VLine};
 use readout_core::csv_record::CsvRecord;
@@ -303,6 +303,7 @@ pub fn draw_crosshair(
     plot_ui: &mut PlotUi<'_>,
     cursor_pos: Option<PlotPoint>,
     cursor_info: Option<&CursorInfo>,
+    live_now: Option<&CursorInfo>,
 ) {
     let Some(pos) = cursor_pos else {
         return;
@@ -320,11 +321,15 @@ pub fn draw_crosshair(
             .color(color)
             .style(LineStyle::dotted_dense()),
     );
-    if let Some(cursor) = cursor_info {
-        let tooltip = format!(
-            "{:.4} {}\n{}\n{} [{}]",
-            cursor.value, cursor.unit, cursor.timestamp, cursor.series, cursor.mode
-        );
+    if cursor_info.is_some() || live_now.is_some() {
+        let mut tooltip_lines = Vec::new();
+        if cursor_info.is_some() {
+            tooltip_lines.push(info_bar::format_cursor_line(cursor_info));
+        }
+        if live_now.is_some() {
+            tooltip_lines.push(info_bar::format_live_now_line(live_now));
+        }
+        let tooltip = tooltip_lines.join("\n");
         plot_ui.text(
             Text::new("cursor_tooltip", PlotPoint::new(pos.x, pos.y), tooltip)
                 .anchor(Align2::LEFT_BOTTOM)

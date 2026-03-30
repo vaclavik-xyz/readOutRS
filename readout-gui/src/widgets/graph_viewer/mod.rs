@@ -12,6 +12,7 @@ use self::render_cache::RenderCache;
 use self::render_sampling::visible_point_budget;
 use self::source_model::XDomain;
 use chrono::{DateTime, Local};
+use egui::Pos2;
 use readout_core::types::{DeviceId, RuntimeEvent};
 use readout_persistence::config::AppConfiguration;
 use std::io::Write;
@@ -68,6 +69,9 @@ pub struct GraphViewerWindow {
     last_poll: Instant,
     overlay: overlay::OverlayState,
     hovered_cursor: Option<info_bar::CursorInfo>,
+    hovered_live_now: Option<info_bar::CursorInfo>,
+    hovered_source_id: Option<u64>,
+    last_hover_screen_pos: Option<Pos2>,
     fit_next_frame: bool,
     last_error: Option<String>,
     render_cache: RenderCache,
@@ -111,6 +115,9 @@ impl GraphViewerWindow {
             last_poll: Instant::now(),
             overlay: overlay::OverlayState::default(),
             hovered_cursor: None,
+            hovered_live_now: None,
+            hovered_source_id: None,
+            last_hover_screen_pos: None,
             fit_next_frame: false,
             last_error: None,
             render_cache: RenderCache::new(),
@@ -168,6 +175,7 @@ impl GraphViewerWindow {
                     info_bar::show(
                         ui,
                         self.hovered_cursor.as_ref(),
+                        self.hovered_live_now.as_ref(),
                         selection_stats.as_ref(),
                         measurement_delta.as_ref(),
                     );
@@ -188,16 +196,18 @@ impl GraphViewerWindow {
 
     fn handle_action(&mut self, action: ViewerAction, config: &AppConfiguration) {
         match action {
-            ViewerAction::AttachRuntime(device) => match self.data_store.attach_runtime_device(device) {
-                        Ok(_) => {
-                            self.following = true;
-                            self.snap_follow_next_frame = true;
-                            self.last_error = None;
-                        }
-                Err(err) => {
-                    self.last_error = Some(format!("Failed to attach live source: {err}"));
+            ViewerAction::AttachRuntime(device) => {
+                match self.data_store.attach_runtime_device(device) {
+                    Ok(_) => {
+                        self.following = true;
+                        self.snap_follow_next_frame = true;
+                        self.last_error = None;
+                    }
+                    Err(err) => {
+                        self.last_error = Some(format!("Failed to attach live source: {err}"));
+                    }
                 }
-            },
+            }
             ViewerAction::AttachLiveCsv(device) => {
                 let Some(path) = configured_tail_path(config, device) else {
                     self.last_error = Some(format!(
@@ -241,7 +251,7 @@ impl GraphViewerWindow {
                     file.visible = !file.visible;
                 }
                 self.render_cache.invalidate_source(source_id);
-                self.hovered_cursor = None;
+                self.clear_hover_state();
             }
             ViewerAction::RemoveSource(source_id) => {
                 self.data_store.remove_source(source_id);
@@ -250,18 +260,14 @@ impl GraphViewerWindow {
                     self.overlay = overlay::OverlayState::default();
                     self.following = false;
                 }
-                self.hovered_cursor = None;
+                self.clear_hover_state();
             }
             ViewerAction::None => {}
             ViewerAction::OpenFile | ViewerAction::AddFile | ViewerAction::Export => {}
         }
     }
 
-    fn dispatch_action(
-        &mut self,
-        action: ViewerAction,
-        config: &AppConfiguration,
-    ) {
+    fn dispatch_action(&mut self, action: ViewerAction, config: &AppConfiguration) {
         if let Some(request) = dialog_request_for_action(action, self.overlay.selection) {
             self.queue_dialog_request(request);
             return;
@@ -323,7 +329,7 @@ impl GraphViewerWindow {
             } => match self.data_store.load_csv_file(path, true) {
                 Ok(_) => {
                     self.overlay = overlay::OverlayState::default();
-                    self.hovered_cursor = None;
+                    self.clear_hover_state();
                     self.following = false;
                     self.fit_next_frame = true;
                     self.last_error = None;
@@ -355,7 +361,8 @@ impl GraphViewerWindow {
                     self.last_error = Some(format!("Export failed: {err}"));
                 }
             },
-            DialogOutcome::PickCsv { path: None, .. } | DialogOutcome::SaveExport { path: None, .. } => {}
+            DialogOutcome::PickCsv { path: None, .. }
+            | DialogOutcome::SaveExport { path: None, .. } => {}
         }
     }
 
@@ -366,7 +373,7 @@ impl GraphViewerWindow {
     fn render_chart(&mut self, ui: &mut egui::Ui) {
         if self.data_store.file_count() == 0 {
             self.overlay.cursor_pos = None;
-            self.hovered_cursor = None;
+            self.clear_hover_state();
             ui.centered_and_justified(|ui| {
                 ui.label(
                     egui::RichText::new("Open a CSV file to inspect logged measurements.").weak(),
@@ -390,14 +397,22 @@ impl GraphViewerWindow {
             .x_axis_formatter(move |mark, _range| format_axis_label(mark.value, active_domain))
             .label_formatter(|_, _| String::new())
             .show(ui, |plot_ui| {
-                let cursor_pos = if plot_ui.response().hovered() || plot_ui.response().dragged() {
+                let hovering_plot = plot_ui.response().hovered() || plot_ui.response().dragged();
+                let cursor_pos = if hovering_plot {
                     plot_ui.pointer_coordinate()
                 } else {
                     None
                 };
+                let pointer_screen_pos = if hovering_plot {
+                    plot_ui
+                        .response()
+                        .interact_pointer_pos()
+                        .or_else(|| plot_ui.response().hover_pos())
+                } else {
+                    None
+                };
                 self.overlay.cursor_pos = cursor_pos;
-                self.hovered_cursor =
-                    cursor_pos.and_then(|pos| self.cursor_info_for_point(pos.x, pos.y));
+                self.refresh_hover_state(pointer_screen_pos, cursor_pos);
                 let visible_bounds = plot_ui.plot_bounds().range_x();
                 let plot_query = build_plot_query(
                     Some((*visible_bounds.start(), *visible_bounds.end())),
@@ -475,7 +490,12 @@ impl GraphViewerWindow {
                 overlay::draw_selection(plot_ui, self.overlay.selection);
                 overlay::draw_measurements(plot_ui, &self.overlay, cursor_pos);
                 overlay::draw_markers(plot_ui, &self.overlay.markers, &mode_change_markers);
-                overlay::draw_crosshair(plot_ui, cursor_pos, self.hovered_cursor.as_ref());
+                overlay::draw_crosshair(
+                    plot_ui,
+                    cursor_pos,
+                    self.hovered_cursor.as_ref(),
+                    self.hovered_live_now.as_ref(),
+                );
 
                 if fit_next_frame {
                     plot_ui.set_auto_bounds(egui::Vec2b::new(true, true));
@@ -535,16 +555,55 @@ impl GraphViewerWindow {
         overlay::compute_value_stats(&values)
     }
 
-    fn cursor_info_for_point(&self, x: f64, y: f64) -> Option<info_bar::CursorInfo> {
-        let record = self.data_store.nearest_visible_sample(x, y)?;
-
-        Some(info_bar::CursorInfo {
+    fn cursor_info_from_record(record: data_store::HoveredRecord) -> info_bar::CursorInfo {
+        info_bar::CursorInfo {
             series: record.series,
             value: record.value,
             unit: record.unit,
             timestamp: record.timestamp,
             mode: record.mode,
-        })
+        }
+    }
+
+    fn clear_hover_state(&mut self) {
+        self.hovered_cursor = None;
+        self.hovered_live_now = None;
+        self.hovered_source_id = None;
+        self.last_hover_screen_pos = None;
+    }
+
+    fn refresh_hover_state(
+        &mut self,
+        pointer_screen_pos: Option<Pos2>,
+        cursor_pos: Option<egui_plot::PlotPoint>,
+    ) {
+        let (Some(pointer_screen_pos), Some(cursor_pos)) = (pointer_screen_pos, cursor_pos) else {
+            self.clear_hover_state();
+            return;
+        };
+
+        let pointer_moved = self
+            .last_hover_screen_pos
+            .is_none_or(|previous| previous.distance_sq(pointer_screen_pos) > 1.0);
+
+        if pointer_moved || self.hovered_cursor.is_none() {
+            let record = self
+                .data_store
+                .nearest_visible_sample(cursor_pos.x, cursor_pos.y);
+            self.hovered_source_id = record.as_ref().map(|record| record.source_id);
+            self.hovered_cursor = record.map(Self::cursor_info_from_record);
+            self.last_hover_screen_pos = Some(pointer_screen_pos);
+        }
+
+        self.hovered_live_now = self
+            .hovered_source_id
+            .and_then(|source_id| self.data_store.latest_visible_live_sample(source_id))
+            .map(Self::cursor_info_from_record);
+
+        if self.hovered_cursor.is_none() {
+            self.hovered_live_now = None;
+            self.hovered_source_id = None;
+        }
     }
 
     fn mode_change_markers(&self) -> Vec<ModeChangeMarker> {
@@ -674,11 +733,13 @@ fn spawn_dialog_request(
                 .add_filter("CSV", &["csv"])
                 .pick_file();
             std::thread::spawn(move || {
-                let path = tokio::runtime::Builder::new_current_thread()
+                let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
-                    .ok()
-                    .and_then(|rt| rt.block_on(file_future).map(|f| f.path().to_path_buf()));
+                    .expect("dialog runtime");
+                let path = runtime
+                    .block_on(file_future)
+                    .map(|file| file.path().to_path_buf());
                 let _ = result_tx.send(DialogOutcome::PickCsv { kind, path });
                 ctx.request_repaint();
             });
@@ -689,11 +750,13 @@ fn spawn_dialog_request(
                 .set_file_name("export.csv")
                 .save_file();
             std::thread::spawn(move || {
-                let path = tokio::runtime::Builder::new_current_thread()
+                let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
-                    .ok()
-                    .and_then(|rt| rt.block_on(file_future).map(|f| f.path().to_path_buf()));
+                    .expect("dialog runtime");
+                let path = runtime
+                    .block_on(file_future)
+                    .map(|file| file.path().to_path_buf());
                 let _ = result_tx.send(DialogOutcome::SaveExport { selection, path });
                 ctx.request_repaint();
             });
@@ -716,10 +779,7 @@ fn configured_tail_path(config: &AppConfiguration, device: DeviceId) -> Option<P
     }
 }
 
-fn build_plot_query(
-    x_range: Option<(f64, f64)>,
-    plot_width_points: Option<f32>,
-) -> PlotQuery {
+fn build_plot_query(x_range: Option<(f64, f64)>, plot_width_points: Option<f32>) -> PlotQuery {
     let target_points = plot_width_points
         .filter(|width| *width > 0.0)
         .map(visible_point_budget)
@@ -741,11 +801,7 @@ fn should_detach_follow(ui: &egui::Ui, response: &egui::Response, allow_drag_det
     (allow_drag_detach && response.dragged()) || scrolled
 }
 
-fn follow_live_edge(
-    plot_ui: &mut egui_plot::PlotUi<'_>,
-    latest_x: f64,
-    force_snap: bool,
-) -> bool {
+fn follow_live_edge(plot_ui: &mut egui_plot::PlotUi<'_>, latest_x: f64, force_snap: bool) -> bool {
     let bounds = plot_ui.plot_bounds();
     if !bounds.is_valid() {
         return false;
@@ -837,9 +893,9 @@ fn format_csv_value(value: Option<f64>) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        DialogOutcome, DialogRequest, DialogRequestKind,
-        CsvDataStore, GRAPH_VIEWER_PLOT_ID, GRAPH_VIEWER_VIEWPORT_ID, GRAPH_VIEWER_WINDOW_TITLE,
-        GraphViewerWindow, ViewerAction, export_to_csv, format_csv_value,
+        CsvDataStore, DialogOutcome, DialogRequest, DialogRequestKind, GRAPH_VIEWER_PLOT_ID,
+        GRAPH_VIEWER_VIEWPORT_ID, GRAPH_VIEWER_WINDOW_TITLE, GraphViewerWindow, ViewerAction,
+        export_to_csv, format_csv_value,
     };
     use readout_core::types::DeviceId;
     use readout_persistence::config::AppConfiguration;
@@ -992,6 +1048,74 @@ mod tests {
         assert_eq!(GRAPH_VIEWER_WINDOW_TITLE, "Graph Viewer");
         assert_eq!(GRAPH_VIEWER_VIEWPORT_ID, "graph_viewer");
         assert_eq!(GRAPH_VIEWER_PLOT_ID, "graph_viewer_plot");
+    }
+
+    #[test]
+    fn graph_viewer_cursor_live_latches_cursor_snapshot_while_live_now_updates() {
+        let mut viewer = GraphViewerWindow::new();
+        let mm = viewer
+            .data_store
+            .attach_runtime_device(DeviceId::Multimeter)
+            .expect("attach multimeter");
+        let usbc = viewer
+            .data_store
+            .attach_runtime_device(DeviceId::UsbC)
+            .expect("attach usbc");
+
+        viewer
+            .data_store
+            .push_test_sample(mm, 100.0, Some(1.0), "V", "DCV");
+        viewer
+            .data_store
+            .push_test_sample(usbc, 100.0, Some(9.0), "V", "DCV");
+
+        viewer.refresh_hover_state(
+            Some(egui::pos2(10.0, 10.0)),
+            Some(egui_plot::PlotPoint::new(100.0, 8.8)),
+        );
+
+        assert_eq!(viewer.hovered_cursor.as_ref().unwrap().series, "USB-C Live");
+        assert_eq!(viewer.hovered_cursor.as_ref().unwrap().value, 9.0);
+        assert_eq!(viewer.hovered_live_now.as_ref().unwrap().value, 9.0);
+
+        viewer
+            .data_store
+            .push_test_sample(usbc, 101.0, Some(10.0), "V", "DCV");
+
+        viewer.refresh_hover_state(
+            Some(egui::pos2(10.0, 10.0)),
+            Some(egui_plot::PlotPoint::new(101.0, 0.0)),
+        );
+
+        assert_eq!(viewer.hovered_cursor.as_ref().unwrap().series, "USB-C Live");
+        assert_eq!(viewer.hovered_cursor.as_ref().unwrap().value, 9.0);
+        assert_eq!(viewer.hovered_live_now.as_ref().unwrap().value, 10.0);
+    }
+
+    #[test]
+    fn graph_viewer_cursor_live_resolves_first_sample_without_mouse_motion() {
+        let mut viewer = GraphViewerWindow::new();
+        let mm = viewer
+            .data_store
+            .attach_runtime_device(DeviceId::Multimeter)
+            .expect("attach multimeter");
+        let pointer_screen_pos = egui::pos2(10.0, 10.0);
+        let cursor_pos = egui_plot::PlotPoint::new(100.0, 1.0);
+
+        viewer.refresh_hover_state(Some(pointer_screen_pos), Some(cursor_pos));
+
+        assert!(viewer.hovered_cursor.is_none());
+        assert!(viewer.hovered_live_now.is_none());
+
+        viewer
+            .data_store
+            .push_test_sample(mm, 100.0, Some(1.0), "V", "DCV");
+
+        viewer.refresh_hover_state(Some(pointer_screen_pos), Some(cursor_pos));
+
+        assert_eq!(viewer.hovered_cursor.as_ref().unwrap().series, "MM Live");
+        assert_eq!(viewer.hovered_cursor.as_ref().unwrap().value, 1.0);
+        assert_eq!(viewer.hovered_live_now.as_ref().unwrap().value, 1.0);
     }
 
     #[test]

@@ -93,7 +93,7 @@ impl RenderCache {
 }
 
 /// Compute the overscan range for a visible viewport.
-pub(crate) fn overscan_range(visible_min: f64, visible_max: f64) -> (f64, f64) {
+fn overscan_range(visible_min: f64, visible_max: f64) -> (f64, f64) {
     let span = visible_max - visible_min;
     let margin = span * OVERSCAN_FRACTION;
     (visible_min - margin, visible_max + margin)
@@ -101,9 +101,6 @@ pub(crate) fn overscan_range(visible_min: f64, visible_max: f64) -> (f64, f64) {
 
 /// Check if two spans are compatible within zoom tolerance.
 fn spans_compatible(cached_span: f64, current_span: f64) -> bool {
-    if cached_span == 0.0 && current_span == 0.0 {
-        return true; // both zero-span (single point) — compatible
-    }
     if cached_span <= 0.0 || current_span <= 0.0 {
         return false;
     }
@@ -161,39 +158,107 @@ mod tests {
     #[test]
     fn cache_invalidates_on_revision_change() {
         let mut cache = RenderCache::new();
-        cache.store_series(1, 5, Some((0.0, 100.0)), 100.0, 256, vec![PlotPoint::new(0.0, 1.0)]);
+        cache.store_series(
+            1,
+            5,
+            Some((0.0, 100.0)),
+            100.0,
+            256,
+            vec![PlotPoint::new(0.0, 1.0)],
+        );
 
-        assert!(cache.get_series(1, 5, Some((0.0, 100.0)), 100.0, 256).is_some());
-        assert!(cache.get_series(1, 6, Some((0.0, 100.0)), 100.0, 256).is_none());
+        assert!(
+            cache
+                .get_series(1, 5, Some((0.0, 100.0)), 100.0, 256)
+                .is_some()
+        );
+        assert!(
+            cache
+                .get_series(1, 6, Some((0.0, 100.0)), 100.0, 256)
+                .is_none()
+        );
     }
 
     #[test]
     fn cache_invalidates_on_span_change() {
         let mut cache = RenderCache::new();
-        cache.store_series(1, 1, Some((0.0, 100.0)), 100.0, 256, vec![PlotPoint::new(0.0, 1.0)]);
+        cache.store_series(
+            1,
+            1,
+            Some((0.0, 100.0)),
+            100.0,
+            256,
+            vec![PlotPoint::new(0.0, 1.0)],
+        );
 
-        assert!(cache.get_series(1, 1, Some((0.0, 105.0)), 105.0, 256).is_some());
-        assert!(cache.get_series(1, 1, Some((0.0, 150.0)), 150.0, 256).is_none());
+        assert!(
+            cache
+                .get_series(1, 1, Some((0.0, 105.0)), 105.0, 256)
+                .is_some()
+        );
+        assert!(
+            cache
+                .get_series(1, 1, Some((0.0, 150.0)), 150.0, 256)
+                .is_none()
+        );
     }
 
     #[test]
     fn cache_invalidates_on_budget_change() {
         let mut cache = RenderCache::new();
-        cache.store_series(1, 1, Some((0.0, 100.0)), 100.0, 256, vec![PlotPoint::new(0.0, 1.0)]);
+        cache.store_series(
+            1,
+            1,
+            Some((0.0, 100.0)),
+            100.0,
+            256,
+            vec![PlotPoint::new(0.0, 1.0)],
+        );
 
-        assert!(cache.get_series(1, 1, Some((0.0, 100.0)), 100.0, 256).is_some());
-        assert!(cache.get_series(1, 1, Some((0.0, 100.0)), 100.0, 512).is_none());
+        assert!(
+            cache
+                .get_series(1, 1, Some((0.0, 100.0)), 100.0, 256)
+                .is_some()
+        );
+        assert!(
+            cache
+                .get_series(1, 1, Some((0.0, 100.0)), 100.0, 512)
+                .is_none()
+        );
     }
 
     #[test]
     fn cache_reuses_within_overscan() {
         let mut cache = RenderCache::new();
-        cache.store_series(1, 1, Some((100.0, 200.0)), 100.0, 256, vec![PlotPoint::new(100.0, 1.0)]);
+        cache.store_series(
+            1,
+            1,
+            Some((100.0, 200.0)),
+            100.0,
+            256,
+            vec![PlotPoint::new(100.0, 1.0)],
+        );
 
-        assert!(cache.get_series(1, 1, Some((90.0, 190.0)), 100.0, 256).is_some());
-        assert!(cache.get_series(1, 1, Some((110.0, 210.0)), 100.0, 256).is_some());
-        assert!(cache.get_series(1, 1, Some((70.0, 170.0)), 100.0, 256).is_none());
-        assert!(cache.get_series(1, 1, Some((130.0, 230.0)), 100.0, 256).is_none());
+        assert!(
+            cache
+                .get_series(1, 1, Some((90.0, 190.0)), 100.0, 256)
+                .is_some()
+        );
+        assert!(
+            cache
+                .get_series(1, 1, Some((110.0, 210.0)), 100.0, 256)
+                .is_some()
+        );
+        assert!(
+            cache
+                .get_series(1, 1, Some((70.0, 170.0)), 100.0, 256)
+                .is_none()
+        );
+        assert!(
+            cache
+                .get_series(1, 1, Some((130.0, 230.0)), 100.0, 256)
+                .is_none()
+        );
     }
 
     #[test]

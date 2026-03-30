@@ -322,6 +322,74 @@ impl ReadOutApp {
         }
     }
 
+    fn apply_toolbar_action(
+        &mut self,
+        toolbar_action: widgets::toolbar::ToolbarAction,
+        ctx: &egui::Context,
+    ) {
+        match toolbar_action {
+            widgets::toolbar::ToolbarAction::TogglePause => {
+                self.state.paused = !self.state.paused;
+            }
+            widgets::toolbar::ToolbarAction::ClearCharts => {
+                for pipeline in self.state.chart_pipelines.values_mut() {
+                    pipeline.clear();
+                }
+                for pipeline in self.state.usbc_chart_pipelines.values_mut() {
+                    pipeline.clear();
+                }
+                self.state.paused = true;
+            }
+            widgets::toolbar::ToolbarAction::SetTimeRange(idx) => {
+                self.selected_range_idx = idx;
+            }
+            widgets::toolbar::ToolbarAction::OpenGraphViewer => {
+                self.graph_viewer.open = true;
+            }
+            widgets::toolbar::ToolbarAction::OpenSettings => {
+                self.settings_panel.open = true;
+            }
+            widgets::toolbar::ToolbarAction::ToggleAlwaysOnTop => {
+                self.always_on_top = !self.always_on_top;
+                self.config.always_on_top = self.always_on_top;
+                let level = if self.always_on_top {
+                    egui::viewport::WindowLevel::AlwaysOnTop
+                } else {
+                    egui::viewport::WindowLevel::Normal
+                };
+                ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(level));
+                ctx.request_repaint();
+                self.save_config_async();
+            }
+            widgets::toolbar::ToolbarAction::OpenMeterControl => {
+                self.meter_control.open = true;
+            }
+            widgets::toolbar::ToolbarAction::ToggleShowMm => {
+                if self.show_mm && !self.show_usbc {
+                    return;
+                }
+                self.show_mm = !self.show_mm;
+            }
+            widgets::toolbar::ToolbarAction::ToggleShowUsbc => {
+                if self.show_usbc && !self.show_mm {
+                    return;
+                }
+                self.show_usbc = !self.show_usbc;
+            }
+            widgets::toolbar::ToolbarAction::None => {}
+        }
+    }
+
+    fn build_title_bar_state(&self) -> widgets::toolbar::TitleBarState {
+        widgets::toolbar::TitleBarState {
+            always_on_top: self.always_on_top,
+            selected_range_idx: self.selected_range_idx,
+            show_mm: self.show_mm,
+            show_usbc: self.show_usbc,
+            paused: self.state.paused,
+        }
+    }
+
     fn restart_runtime(&mut self) {
         if let Some(mut rt) = self.runtime.take() {
             rt.shutdown();
@@ -424,6 +492,7 @@ impl eframe::App for ReadOutApp {
         }
 
         // Keyboard shortcuts
+        let mut clear_charts_shortcut = false;
         ctx.input(|i| {
             if i.modifiers.command && i.key_pressed(egui::Key::P) {
                 self.state.paused = !self.state.paused;
@@ -438,14 +507,12 @@ impl eframe::App for ReadOutApp {
                 self.graph_viewer.open = true;
             }
             if i.modifiers.command && i.key_pressed(egui::Key::K) {
-                for pipeline in self.state.chart_pipelines.values_mut() {
-                    pipeline.clear();
-                }
-                for pipeline in self.state.usbc_chart_pipelines.values_mut() {
-                    pipeline.clear();
-                }
+                clear_charts_shortcut = true;
             }
         });
+        if clear_charts_shortcut {
+            self.apply_toolbar_action(widgets::toolbar::ToolbarAction::ClearCharts, ctx);
+        }
 
         // Overlays
         if let Some(new_config) = self.wizard.show(ctx) {
@@ -547,15 +614,9 @@ impl eframe::App for ReadOutApp {
             .show(ctx, |ui| {
                 let content_start = ui.cursor().top();
 
-                // Title bar
-                let title_state = widgets::toolbar::TitleBarState {
-                    always_on_top: self.always_on_top,
-                    selected_range_idx: self.selected_range_idx,
-                    show_mm: self.show_mm,
-                    show_usbc: self.show_usbc,
-                    paused: self.state.paused,
-                };
-                let ta = widgets::toolbar::show_title_bar(ui, &title_state);
+                // Dashboard toolbar row
+                let toolbar_state = self.build_title_bar_state();
+                let ta = widgets::toolbar::show_title_bar(ui, &toolbar_state);
                 if !matches!(ta, widgets::toolbar::ToolbarAction::None) {
                     toolbar_action = ta;
                 }
@@ -681,55 +742,7 @@ impl eframe::App for ReadOutApp {
         }
 
         // Handle toolbar actions
-        match toolbar_action {
-            widgets::toolbar::ToolbarAction::TogglePause => {
-                self.state.paused = !self.state.paused;
-            }
-            widgets::toolbar::ToolbarAction::ClearCharts => {
-                for pipeline in self.state.chart_pipelines.values_mut() {
-                    pipeline.clear();
-                }
-                for pipeline in self.state.usbc_chart_pipelines.values_mut() {
-                    pipeline.clear();
-                }
-            }
-            widgets::toolbar::ToolbarAction::SetTimeRange(idx) => {
-                self.selected_range_idx = idx;
-            }
-            widgets::toolbar::ToolbarAction::OpenGraphViewer => {
-                self.graph_viewer.open = true;
-            }
-            widgets::toolbar::ToolbarAction::OpenSettings => {
-                self.settings_panel.open = true;
-            }
-            widgets::toolbar::ToolbarAction::ToggleAlwaysOnTop => {
-                self.always_on_top = !self.always_on_top;
-                self.config.always_on_top = self.always_on_top;
-                let level = if self.always_on_top {
-                    egui::viewport::WindowLevel::AlwaysOnTop
-                } else {
-                    egui::viewport::WindowLevel::Normal
-                };
-                ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(level));
-                self.save_config_async();
-            }
-            widgets::toolbar::ToolbarAction::OpenMeterControl => {
-                self.meter_control.open = true;
-            }
-            widgets::toolbar::ToolbarAction::ToggleShowMm => {
-                if self.show_mm && !self.show_usbc {
-                    return;
-                }
-                self.show_mm = !self.show_mm;
-            }
-            widgets::toolbar::ToolbarAction::ToggleShowUsbc => {
-                if self.show_usbc && !self.show_mm {
-                    return;
-                }
-                self.show_usbc = !self.show_usbc;
-            }
-            widgets::toolbar::ToolbarAction::None => {}
-        }
+        self.apply_toolbar_action(toolbar_action, ctx);
 
         // Handle device section actions
         match section_action {
@@ -754,7 +767,22 @@ impl eframe::App for ReadOutApp {
 mod tests {
     use super::*;
     use crate::widgets::toolbar::RANGE_OPTIONS;
+    use eframe::App as _;
     use std::time::Duration;
+
+    fn test_app(ctx: &egui::Context) -> ReadOutApp {
+        ReadOutApp::new(
+            AppConfiguration::default(),
+            std::path::PathBuf::from("config.toml"),
+            true,
+            ctx,
+        )
+    }
+
+    fn run_update_with_input(app: &mut ReadOutApp, ctx: &egui::Context, raw_input: egui::RawInput) {
+        let mut frame = eframe::Frame::_new_kittest();
+        let _ = ctx.run(raw_input, |ctx| app.update(ctx, &mut frame));
+    }
 
     #[test]
     fn initial_window_size_dimensions() {
@@ -805,14 +833,170 @@ mod tests {
     #[test]
     fn app_defaults_to_thirty_seconds_even_with_shorter_ranges_available() {
         let ctx = egui::Context::default();
-        let app = ReadOutApp::new(
-            AppConfiguration::default(),
-            std::path::PathBuf::from("config.toml"),
-            true,
-            &ctx,
-        );
+        let app = test_app(&ctx);
 
         assert_eq!(RANGE_OPTIONS[0].1, "10s");
         assert_eq!(RANGE_OPTIONS[app.selected_range_idx].1, "30s");
+    }
+
+    #[test]
+    fn toolbar_action_toggle_pause_only_flips_paused_state() {
+        let ctx = egui::Context::default();
+        let mut app = test_app(&ctx);
+        app.state.paused = false;
+
+        app.apply_toolbar_action(crate::widgets::toolbar::ToolbarAction::TogglePause, &ctx);
+
+        assert!(app.state.paused);
+    }
+
+    #[test]
+    fn toolbar_action_toggle_always_on_top_updates_state_config_and_emits_window_level() {
+        let ctx = egui::Context::default();
+        let mut app = test_app(&ctx);
+        app.always_on_top = false;
+        app.config.always_on_top = false;
+
+        let output = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(800.0, 600.0),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                app.apply_toolbar_action(
+                    crate::widgets::toolbar::ToolbarAction::ToggleAlwaysOnTop,
+                    ctx,
+                );
+            },
+        );
+
+        assert!(app.always_on_top);
+        assert!(app.config.always_on_top);
+
+        let viewport_output = output
+            .viewport_output
+            .get(&egui::ViewportId::ROOT)
+            .expect("root viewport output");
+        assert!(viewport_output.commands.iter().any(|command| {
+            matches!(
+                command,
+                egui::ViewportCommand::WindowLevel(egui::viewport::WindowLevel::AlwaysOnTop)
+            )
+        }));
+    }
+
+    #[test]
+    fn toolbar_action_clear_charts_clears_all_pipelines_and_pauses_dashboard() {
+        let ctx = egui::Context::default();
+        let mut app = test_app(&ctx);
+        app.state.paused = false;
+
+        app.state
+            .chart_pipelines
+            .get_mut(&DeviceId::Multimeter)
+            .unwrap()
+            .push(Duration::from_secs(1), 1.0);
+        app.state
+            .usbc_chart_pipelines
+            .get_mut(&UsbCMetric::Voltage)
+            .unwrap()
+            .push(Duration::from_secs(1), 5.0);
+
+        app.apply_toolbar_action(crate::widgets::toolbar::ToolbarAction::ClearCharts, &ctx);
+
+        assert!(app.state.paused);
+        assert_eq!(
+            app.state
+                .chart_pipelines
+                .get_mut(&DeviceId::Multimeter)
+                .unwrap()
+                .query(Duration::from_secs(10), 128),
+            Vec::new()
+        );
+        assert_eq!(
+            app.state
+                .usbc_chart_pipelines
+                .get_mut(&UsbCMetric::Voltage)
+                .unwrap()
+                .query(Duration::from_secs(10), 128),
+            Vec::new()
+        );
+    }
+
+    #[test]
+    fn toolbar_action_clear_charts_leaves_csv_logging_flags_unchanged() {
+        let ctx = egui::Context::default();
+        let mut app = test_app(&ctx);
+        app.config.multimeter_csv_logging_enabled = true;
+        app.config.usbc_csv_logging_enabled = true;
+
+        app.apply_toolbar_action(crate::widgets::toolbar::ToolbarAction::ClearCharts, &ctx);
+
+        assert!(app.config.multimeter_csv_logging_enabled);
+        assert!(app.config.usbc_csv_logging_enabled);
+    }
+
+    #[test]
+    fn build_title_bar_state_threads_dashboard_paused_flag() {
+        let ctx = egui::Context::default();
+        let mut app = test_app(&ctx);
+        app.state.paused = true;
+
+        let title_state = app.build_title_bar_state();
+
+        assert!(title_state.paused);
+    }
+
+    #[test]
+    fn command_k_shortcut_matches_stop_clear_and_pause_semantics() {
+        let ctx = egui::Context::default();
+        let mut app = test_app(&ctx);
+        app.state.paused = false;
+        app.state
+            .chart_pipelines
+            .get_mut(&DeviceId::Multimeter)
+            .unwrap()
+            .push(Duration::from_secs(1), 1.0);
+        app.state
+            .usbc_chart_pipelines
+            .get_mut(&UsbCMetric::Voltage)
+            .unwrap()
+            .push(Duration::from_secs(1), 5.0);
+
+        let modifiers = egui::Modifiers {
+            command: true,
+            mac_cmd: true,
+            ..Default::default()
+        };
+        let raw_input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(800.0, 600.0),
+            )),
+            modifiers,
+            events: vec![egui::Event::Key {
+                key: egui::Key::K,
+                physical_key: Some(egui::Key::K),
+                pressed: true,
+                repeat: false,
+                modifiers,
+            }],
+            ..Default::default()
+        };
+
+        run_update_with_input(&mut app, &ctx, raw_input);
+
+        assert!(app.state.paused);
+        assert_eq!(
+            app.state
+                .chart_pipelines
+                .get_mut(&DeviceId::Multimeter)
+                .unwrap()
+                .query(Duration::from_secs(10), 128),
+            Vec::new()
+        );
     }
 }
