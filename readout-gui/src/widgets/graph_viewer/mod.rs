@@ -733,11 +733,13 @@ fn spawn_dialog_request(
                 .add_filter("CSV", &["csv"])
                 .pick_file();
             std::thread::spawn(move || {
-                let path = tokio::runtime::Builder::new_current_thread()
+                let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
-                    .ok()
-                    .and_then(|rt| rt.block_on(file_future).map(|f| f.path().to_path_buf()));
+                    .expect("dialog runtime");
+                let path = runtime
+                    .block_on(file_future)
+                    .map(|file| file.path().to_path_buf());
                 let _ = result_tx.send(DialogOutcome::PickCsv { kind, path });
                 ctx.request_repaint();
             });
@@ -748,11 +750,13 @@ fn spawn_dialog_request(
                 .set_file_name("export.csv")
                 .save_file();
             std::thread::spawn(move || {
-                let path = tokio::runtime::Builder::new_current_thread()
+                let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
-                    .ok()
-                    .and_then(|rt| rt.block_on(file_future).map(|f| f.path().to_path_buf()));
+                    .expect("dialog runtime");
+                let path = runtime
+                    .block_on(file_future)
+                    .map(|file| file.path().to_path_buf());
                 let _ = result_tx.send(DialogOutcome::SaveExport { selection, path });
                 ctx.request_repaint();
             });

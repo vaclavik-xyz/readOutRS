@@ -86,67 +86,65 @@ pub fn show_title_bar(ui: &mut egui::Ui, state: &TitleBarState) -> ToolbarAction
                 }
             });
 
-        // ── Transport: Play/Pause | Stop ──
-        let (play_icon, play_tip) = if state.paused {
-            (icons::PLAY, "Resume (Cmd+P)")
-        } else {
-            (icons::PAUSE, "Pause (Cmd+P)")
-        };
-        if ui
-            .button(egui::RichText::new(play_icon).size(14.0))
-            .on_hover_text(play_tip)
-            .clicked()
-        {
-            action = ToolbarAction::TogglePause;
-        }
-        if ui
-            .button(egui::RichText::new(icons::STOP).size(14.0))
-            .on_hover_text("Clear Charts (Cmd+K)")
-            .clicked()
-        {
-            action = ToolbarAction::ClearCharts;
-        }
+        // ── Right cluster (RTL): transport + utility ──
+        // Uses right_to_left to fill remaining width without overflowing
+        // the horizontal (same pattern as device_section title row).
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
 
-        // ── Spacer → push utility cluster to right edge ──
-        let btn_w = ui.spacing().interact_size.y;
-        let gap = ui.spacing().item_spacing.x;
-        let util_width = 3.0 * (btn_w + 2.0) + 2.0 * gap;
-        let avail = ui.available_width();
-        if avail > util_width + 1.0 {
-            ui.add_space(avail - util_width);
-        }
+            // Pin — green when always-on-top is active
+            let pin_text = if state.always_on_top {
+                egui::RichText::new(icons::PUSH_PIN)
+                    .size(14.0)
+                    .color(egui::Color32::from_rgb(0x4C, 0xAF, 0x50))
+            } else {
+                egui::RichText::new(icons::PUSH_PIN).size(14.0)
+            };
+            if ui
+                .selectable_label(state.always_on_top, pin_text)
+                .on_hover_text("Always on top")
+                .clicked()
+            {
+                action = ToolbarAction::ToggleAlwaysOnTop;
+            }
 
-        // ── Utility cluster (right-aligned) ──
-        if ui
-            .button(egui::RichText::new(icons::GEAR).size(14.0))
-            .on_hover_text("Settings (Cmd+,)")
-            .clicked()
-        {
-            action = ToolbarAction::OpenSettings;
-        }
-        if ui
-            .button(egui::RichText::new(GRAPH_VIEWER_ICON).size(14.0))
-            .on_hover_text(GRAPH_VIEWER_TOOLTIP)
-            .clicked()
-        {
-            action = ToolbarAction::OpenGraphViewer;
-        }
+            if ui
+                .button(egui::RichText::new(GRAPH_VIEWER_ICON).size(14.0))
+                .on_hover_text(GRAPH_VIEWER_TOOLTIP)
+                .clicked()
+            {
+                action = ToolbarAction::OpenGraphViewer;
+            }
 
-        // Pin — green when always-on-top is active
-        let pin_text = if state.always_on_top {
-            egui::RichText::new(icons::PUSH_PIN)
-                .size(14.0)
-                .color(egui::Color32::from_rgb(0x4C, 0xAF, 0x50))
-        } else {
-            egui::RichText::new(icons::PUSH_PIN).size(14.0)
-        };
-        if ui
-            .selectable_label(state.always_on_top, pin_text)
-            .on_hover_text("Always on top")
-            .clicked()
-        {
-            action = ToolbarAction::ToggleAlwaysOnTop;
-        }
+            if ui
+                .button(egui::RichText::new(icons::GEAR).size(14.0))
+                .on_hover_text("Settings (Cmd+,)")
+                .clicked()
+            {
+                action = ToolbarAction::OpenSettings;
+            }
+
+            if ui
+                .button(egui::RichText::new(icons::STOP).size(14.0))
+                .on_hover_text("Clear Charts (Cmd+K)")
+                .clicked()
+            {
+                action = ToolbarAction::ClearCharts;
+            }
+
+            let (play_icon, play_tip) = if state.paused {
+                (icons::PLAY, "Resume (Cmd+P)")
+            } else {
+                (icons::PAUSE, "Pause (Cmd+P)")
+            };
+            if ui
+                .button(egui::RichText::new(play_icon).size(14.0))
+                .on_hover_text(play_tip)
+                .clicked()
+            {
+                action = ToolbarAction::TogglePause;
+            }
+        });
     });
 
     action
