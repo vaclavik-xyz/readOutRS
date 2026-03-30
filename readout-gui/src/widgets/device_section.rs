@@ -356,7 +356,7 @@ pub fn show(
 
             // Chart with min/max labels on the right
             ui.horizontal(|ui| {
-                let chart_width = ui.available_width() - 45.0;
+                let chart_width = ui.available_width() - 55.0;
                 ui.allocate_ui(egui::vec2(chart_width, chart_height), |ui| {
                     egui_plot::Plot::new(chart_id)
                         .height(chart_height)
@@ -379,9 +379,19 @@ pub fn show(
                 // Right-side min/max labels
                 if y_min != 0.0 || y_max != 0.0 {
                     let sec = theme::text_secondary(ui);
+                    let fmt = |v: f64| -> String {
+                        let a = v.abs();
+                        if a >= 1000.0 {
+                            format!("{v:.1}")
+                        } else if a >= 100.0 {
+                            format!("{v:.2}")
+                        } else {
+                            format!("{v:.3}")
+                        }
+                    };
                     ui.vertical(|ui| {
                         ui.label(
-                            egui::RichText::new(format!("{y_max:.3}"))
+                            egui::RichText::new(fmt(y_max))
                                 .size(9.0)
                                 .family(egui::FontFamily::Monospace)
                                 .color(sec),
@@ -389,14 +399,14 @@ pub fn show(
                         let remaining = (ui.available_height() - 24.0).max(0.0);
                         ui.add_space(remaining / 2.0);
                         ui.label(
-                            egui::RichText::new(format!("{y_avg:.3}"))
+                            egui::RichText::new(fmt(y_avg))
                                 .size(9.0)
                                 .family(egui::FontFamily::Monospace)
                                 .color(sec),
                         );
                         ui.add_space((ui.available_height() - 12.0).max(0.0));
                         ui.label(
-                            egui::RichText::new(format!("{y_min:.3}"))
+                            egui::RichText::new(fmt(y_min))
                                 .size(9.0)
                                 .family(egui::FontFamily::Monospace)
                                 .color(sec),
