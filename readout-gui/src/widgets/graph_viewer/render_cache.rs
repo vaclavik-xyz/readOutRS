@@ -93,7 +93,7 @@ impl RenderCache {
 }
 
 /// Compute the overscan range for a visible viewport.
-fn overscan_range(visible_min: f64, visible_max: f64) -> (f64, f64) {
+pub(crate) fn overscan_range(visible_min: f64, visible_max: f64) -> (f64, f64) {
     let span = visible_max - visible_min;
     let margin = span * OVERSCAN_FRACTION;
     (visible_min - margin, visible_max + margin)
@@ -101,6 +101,9 @@ fn overscan_range(visible_min: f64, visible_max: f64) -> (f64, f64) {
 
 /// Check if two spans are compatible within zoom tolerance.
 fn spans_compatible(cached_span: f64, current_span: f64) -> bool {
+    if cached_span == 0.0 && current_span == 0.0 {
+        return true; // both zero-span (single point) — compatible
+    }
     if cached_span <= 0.0 || current_span <= 0.0 {
         return false;
     }
