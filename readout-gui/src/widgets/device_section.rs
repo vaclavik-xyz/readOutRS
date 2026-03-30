@@ -214,12 +214,14 @@ pub fn show(
                             ui.label(
                                 egui::RichText::new(format!("{mwh:.1} mWh"))
                                     .size(11.0)
+                                    .family(egui::FontFamily::Monospace)
                                     .color(theme::text_secondary(ui)),
                             );
                             if let Some(mah) = m.energy_mah {
                                 ui.label(
                                     egui::RichText::new(format!("· {mah:.1} mAh"))
                                         .size(11.0)
+                                        .family(egui::FontFamily::Monospace)
                                         .color(theme::text_secondary(ui)),
                                 );
                             }
@@ -239,6 +241,7 @@ pub fn show(
                                 ui.label(
                                     egui::RichText::new(label)
                                         .size(11.0)
+                                        .family(egui::FontFamily::Monospace)
                                         .color(theme::text_secondary(ui)),
                                 );
                             }
@@ -389,29 +392,32 @@ pub fn show(
                             format!("{v:.3}")
                         }
                     };
-                    ui.vertical(|ui| {
-                        ui.label(
-                            egui::RichText::new(fmt(y_max))
-                                .size(9.0)
-                                .family(egui::FontFamily::Monospace)
-                                .color(sec),
-                        );
-                        let remaining = (ui.available_height() - 24.0).max(0.0);
-                        ui.add_space(remaining / 2.0);
-                        ui.label(
-                            egui::RichText::new(fmt(y_avg))
-                                .size(9.0)
-                                .family(egui::FontFamily::Monospace)
-                                .color(sec),
-                        );
-                        ui.add_space((ui.available_height() - 12.0).max(0.0));
-                        ui.label(
-                            egui::RichText::new(fmt(y_min))
-                                .size(9.0)
-                                .family(egui::FontFamily::Monospace)
-                                .color(sec),
-                        );
-                    });
+                    ui.with_layout(
+                        egui::Layout::top_down(egui::Align::Max),
+                        |ui| {
+                            ui.label(
+                                egui::RichText::new(fmt(y_max))
+                                    .size(9.0)
+                                    .family(egui::FontFamily::Monospace)
+                                    .color(sec),
+                            );
+                            let remaining = (ui.available_height() - 24.0).max(0.0);
+                            ui.add_space(remaining / 2.0);
+                            ui.label(
+                                egui::RichText::new(fmt(y_avg))
+                                    .size(9.0)
+                                    .family(egui::FontFamily::Monospace)
+                                    .color(sec),
+                            );
+                            ui.add_space((ui.available_height() - 12.0).max(0.0));
+                            ui.label(
+                                egui::RichText::new(fmt(y_min))
+                                    .size(9.0)
+                                    .family(egui::FontFamily::Monospace)
+                                    .color(sec),
+                            );
+                        },
+                    );
                 }
             });
         });
