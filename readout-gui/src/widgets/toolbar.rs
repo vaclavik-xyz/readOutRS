@@ -38,34 +38,93 @@ pub struct TitleBarState {
     pub paused: bool,
 }
 
-/// Compact toolbar: device toggles | range | transport | ―spacer― | utility.
+/// Pill background with guaranteed contrast against panel fill.
+fn pill_bg(visuals: &egui::Visuals) -> egui::Color32 {
+    let p = visuals.panel_fill;
+    let lum = (p.r() as u16 + p.g() as u16 + p.b() as u16) / 3;
+    let d: i16 = if lum > 128 { -20 } else { 20 };
+    egui::Color32::from_rgb(
+        (p.r() as i16 + d).clamp(0, 255) as u8,
+        (p.g() as i16 + d).clamp(0, 255) as u8,
+        (p.b() as i16 + d).clamp(0, 255) as u8,
+    )
+}
+
+/// Segmented pill — shared rounded background, items inside without own frames.
+fn pill_group(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
+    let bg = pill_bg(ui.visuals());
+    let row_h = ui.spacing().interact_size.y;
+    egui::Frame::new()
+        .fill(bg)
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(1, 0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                ui.spacing_mut().interact_size.y = row_h;
+                // Strip individual widget chrome
+                ui.visuals_mut().widgets.inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
+                ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::NONE;
+                ui.visuals_mut().widgets.hovered.bg_stroke = egui::Stroke::NONE;
+                ui.visuals_mut().widgets.active.bg_stroke = egui::Stroke::NONE;
+                let r = egui::CornerRadius::same(4);
+                ui.visuals_mut().widgets.hovered.corner_radius = r;
+                ui.visuals_mut().widgets.active.corner_radius = r;
+                ui.visuals_mut().widgets.inactive.corner_radius = r;
+                add_contents(ui);
+            });
+        });
+}
+
+/// Thin vertical divider inside a pill group.
+fn pill_divider(ui: &mut egui::Ui) {
+    let h = ui.spacing().interact_size.y * 0.5;
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(1.0, h), egui::Sense::hover());
+    if ui.is_rect_visible(rect) {
+        let color = ui.visuals().widgets.noninteractive.bg_stroke.color;
+        ui.painter().line_segment(
+            [rect.center_top(), rect.center_bottom()],
+            egui::Stroke::new(1.0, color),
+        );
+    }
+}
+
+/// Compact toolbar: MM USB-C 30s▼ ... ⏸ ⏹ ⚙ 📊 📌
 ///
-/// Pure left-to-right layout with a spacer before the utility cluster.
-/// Avoids `right_to_left` sub-layouts which cause clipping in narrow windows.
+/// LTR for device toggles + range. RTL for transport + utility.
+/// Icons colored by state — no pill backgrounds.
 pub fn show_title_bar(ui: &mut egui::Ui, state: &TitleBarState) -> ToolbarAction {
     let mut action = ToolbarAction::None;
 
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
+        // Uniform row height — match 16px icon buttons
+        ui.spacing_mut().interact_size.y = 24.0;
 
-        // ── Device toggles ──
-        if ui
-            .selectable_label(state.show_mm, egui::RichText::new("MM").size(10.0).strong())
-            .on_hover_text("Show/hide Multimeter")
-            .clicked()
-        {
-            action = ToolbarAction::ToggleShowMm;
-        }
-        if ui
-            .selectable_label(
-                state.show_usbc,
-                egui::RichText::new("USB-C").size(10.0).strong(),
-            )
-            .on_hover_text("Show/hide USB-C")
-            .clicked()
-        {
-            action = ToolbarAction::ToggleShowUsbc;
-        }
+        // ── Device toggles pill ──
+        pill_group(ui, |ui| {
+            if ui
+                .selectable_label(
+                    state.show_mm,
+                    egui::RichText::new("MM").size(11.0).strong(),
+                )
+                .on_hover_text("Show/hide Multimeter")
+                .clicked()
+            {
+                action = ToolbarAction::ToggleShowMm;
+            }
+            pill_divider(ui);
+            if ui
+                .selectable_label(
+                    state.show_usbc,
+                    egui::RichText::new("USB-C").size(11.0).strong(),
+                )
+                .on_hover_text("Show/hide USB-C")
+                .clicked()
+            {
+                action = ToolbarAction::ToggleShowUsbc;
+            }
+        });
 
         // ── Range selector ──
         let current_label = RANGE_OPTIONS[state.selected_range_idx].1;
@@ -81,19 +140,40 @@ pub fn show_title_bar(ui: &mut egui::Ui, state: &TitleBarState) -> ToolbarAction
                 }
             });
 
-        // ── Right cluster (RTL): transport + utility ──
-        // Uses right_to_left to fill remaining width without overflowing
-        // the horizontal (same pattern as device_section title row).
+        // ── Transport pill (play/pause left, stop right) ──
+        pill_group(ui, |ui| {
+            let (play_icon, play_tip) = if state.paused {
+                (icons::PLAY, "Resume (Cmd+P)")
+            } else {
+                (icons::PAUSE, "Pause (Cmd+P)")
+            };
+            if ui
+                .button(egui::RichText::new(play_icon).size(16.0))
+                .on_hover_text(play_tip)
+                .clicked()
+            {
+                action = ToolbarAction::TogglePause;
+            }
+            pill_divider(ui);
+            if ui
+                .button(egui::RichText::new(icons::STOP).size(16.0))
+                .on_hover_text("Clear Charts (Cmd+K)")
+                .clicked()
+            {
+                action = ToolbarAction::ClearCharts;
+            }
+        });
+
+        // ── RTL: utility buttons ──
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
 
-            // Pin — green when always-on-top is active
             let pin_text = if state.always_on_top {
                 egui::RichText::new(icons::PUSH_PIN)
-                    .size(14.0)
+                    .size(16.0)
                     .color(egui::Color32::from_rgb(0x4C, 0xAF, 0x50))
             } else {
-                egui::RichText::new(icons::PUSH_PIN).size(14.0)
+                egui::RichText::new(icons::PUSH_PIN).size(16.0)
             };
             if ui
                 .selectable_label(state.always_on_top, pin_text)
@@ -104,7 +184,7 @@ pub fn show_title_bar(ui: &mut egui::Ui, state: &TitleBarState) -> ToolbarAction
             }
 
             if ui
-                .button(egui::RichText::new(GRAPH_VIEWER_ICON).size(14.0))
+                .button(egui::RichText::new(GRAPH_VIEWER_ICON).size(16.0))
                 .on_hover_text(GRAPH_VIEWER_TOOLTIP)
                 .clicked()
             {
@@ -112,32 +192,11 @@ pub fn show_title_bar(ui: &mut egui::Ui, state: &TitleBarState) -> ToolbarAction
             }
 
             if ui
-                .button(egui::RichText::new(icons::GEAR).size(14.0))
+                .button(egui::RichText::new(icons::GEAR).size(16.0))
                 .on_hover_text("Settings (Cmd+,)")
                 .clicked()
             {
                 action = ToolbarAction::OpenSettings;
-            }
-
-            if ui
-                .button(egui::RichText::new(icons::STOP).size(14.0))
-                .on_hover_text("Clear Charts (Cmd+K)")
-                .clicked()
-            {
-                action = ToolbarAction::ClearCharts;
-            }
-
-            let (play_icon, play_tip) = if state.paused {
-                (icons::PLAY, "Resume (Cmd+P)")
-            } else {
-                (icons::PAUSE, "Pause (Cmd+P)")
-            };
-            if ui
-                .button(egui::RichText::new(play_icon).size(14.0))
-                .on_hover_text(play_tip)
-                .clicked()
-            {
-                action = ToolbarAction::TogglePause;
             }
         });
     });
