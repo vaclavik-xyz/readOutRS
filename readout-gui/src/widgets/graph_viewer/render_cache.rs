@@ -101,6 +101,9 @@ fn overscan_range(visible_min: f64, visible_max: f64) -> (f64, f64) {
 
 /// Check if two spans are compatible within zoom tolerance.
 fn spans_compatible(cached_span: f64, current_span: f64) -> bool {
+    if cached_span == 0.0 && current_span == 0.0 {
+        return true; // both zero-span (single point) — compatible
+    }
     if cached_span <= 0.0 || current_span <= 0.0 {
         return false;
     }
