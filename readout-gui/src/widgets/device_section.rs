@@ -267,21 +267,7 @@ pub fn show(
                     // USB-C metric selector (only when chart visible)
                     if *chart_visible {
                         ui.add_space(4.0);
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 3.0;
-                            for (metric, label) in USBC_METRICS {
-                                let selected = usbc_metric == *metric;
-                                if ui
-                                    .selectable_label(
-                                        selected,
-                                        egui::RichText::new(*label).size(10.0),
-                                    )
-                                    .clicked()
-                                {
-                                    action = SectionAction::SetUsbcMetric(*metric);
-                                }
-                            }
-                        });
+                        metric_selector(ui, usbc_metric, &mut action);
                     }
                 }
 
@@ -482,5 +468,59 @@ fn show_mode_badge(ui: &mut egui::Ui, mode: &str, alarm: AlarmState) {
                     .strong()
                     .color(fg),
             );
+        });
+}
+
+fn metric_selector(ui: &mut egui::Ui, current: UsbCMetric, action: &mut SectionAction) {
+    let bg = {
+        let p = ui.visuals().panel_fill;
+        let lum = (p.r() as u16 + p.g() as u16 + p.b() as u16) / 3;
+        let d: i16 = if lum > 128 { -20 } else { 20 };
+        egui::Color32::from_rgb(
+            (p.r() as i16 + d).clamp(0, 255) as u8,
+            (p.g() as i16 + d).clamp(0, 255) as u8,
+            (p.b() as i16 + d).clamp(0, 255) as u8,
+        )
+    };
+    egui::Frame::new()
+        .fill(bg)
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(1, 0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                ui.visuals_mut().widgets.inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
+                ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::NONE;
+                ui.visuals_mut().widgets.hovered.bg_stroke = egui::Stroke::NONE;
+                ui.visuals_mut().widgets.active.bg_stroke = egui::Stroke::NONE;
+                let r = egui::CornerRadius::same(4);
+                ui.visuals_mut().widgets.hovered.corner_radius = r;
+                ui.visuals_mut().widgets.active.corner_radius = r;
+                ui.visuals_mut().widgets.inactive.corner_radius = r;
+
+                for (i, (metric, label)) in USBC_METRICS.iter().enumerate() {
+                    if i > 0 {
+                        let h = ui.spacing().interact_size.y * 0.5;
+                        let (rect, _) =
+                            ui.allocate_exact_size(egui::vec2(1.0, h), egui::Sense::hover());
+                        if ui.is_rect_visible(rect) {
+                            let color = ui.visuals().widgets.noninteractive.bg_stroke.color;
+                            ui.painter().line_segment(
+                                [rect.center_top(), rect.center_bottom()],
+                                egui::Stroke::new(1.0, color),
+                            );
+                        }
+                    }
+                    if ui
+                        .selectable_label(
+                            current == *metric,
+                            egui::RichText::new(*label).size(10.0),
+                        )
+                        .clicked()
+                    {
+                        *action = SectionAction::SetUsbcMetric(*metric);
+                    }
+                }
+            });
         });
 }

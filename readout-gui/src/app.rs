@@ -765,7 +765,61 @@ impl eframe::App for ReadOutApp {
             widgets::device_section::SectionAction::None => {}
         }
 
+        // Dynamic window title with live values
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.build_window_title()));
+
         ctx.request_repaint_after(APP_REPAINT_INTERVAL);
+    }
+}
+
+impl ReadOutApp {
+    fn build_window_title(&self) -> String {
+        let mut parts = Vec::new();
+
+        if self.show_mm {
+            let status = match self.state.connection_state.get(&DeviceId::Multimeter) {
+                Some(ConnectionState::Connected) => self
+                    .state
+                    .latest_measurement
+                    .get(&DeviceId::Multimeter)
+                    .and_then(|m| {
+                        m.primary_value
+                            .map(|v| format!("{} {}", readout_core::value_format::format_si(v, &m.primary_unit), m.mode_string))
+                    })
+                    .unwrap_or_else(|| "Connected".into()),
+                Some(ConnectionState::Connecting | ConnectionState::Reconnecting) => {
+                    "Connecting…".into()
+                }
+                _ => "Disconnected".into(),
+            };
+            parts.push(format!("MM: {status}"));
+        }
+
+        if self.show_usbc {
+            let status = match self.state.connection_state.get(&DeviceId::UsbC) {
+                Some(ConnectionState::Connected) => self
+                    .state
+                    .latest_measurement
+                    .get(&DeviceId::UsbC)
+                    .and_then(|m| {
+                        let v = m.primary_value.map(|v| readout_core::value_format::format_si(v, "V"))?;
+                        let a = m.secondary_value.map(|a| readout_core::value_format::format_si(a, "A"))?;
+                        Some(format!("{v} {a}"))
+                    })
+                    .unwrap_or_else(|| "Connected".into()),
+                Some(ConnectionState::Connecting | ConnectionState::Reconnecting) => {
+                    "Connecting…".into()
+                }
+                _ => "Disconnected".into(),
+            };
+            parts.push(format!("USB-C: {status}"));
+        }
+
+        if parts.is_empty() {
+            "readOut".into()
+        } else {
+            format!("readOut — {}", parts.join(" · "))
+        }
     }
 }
 
