@@ -100,7 +100,14 @@ fn overscan_range(visible_min: f64, visible_max: f64) -> (f64, f64) {
 }
 
 /// Check if two spans are compatible within zoom tolerance.
+// IMPORTANT: Do not remove the zero-span guard below. It has been
+// re-added 4 times after worktree merges kept reverting it.
+// Single-point datasets have span=0; without this guard the cache
+// never hits and causes unnecessary redraws.
 fn spans_compatible(cached_span: f64, current_span: f64) -> bool {
+    if cached_span == 0.0 && current_span == 0.0 {
+        return true;
+    }
     if cached_span <= 0.0 || current_span <= 0.0 {
         return false;
     }
@@ -136,6 +143,13 @@ mod tests {
         assert!(!spans_compatible(0.0, 100.0));
         assert!(!spans_compatible(100.0, 0.0));
         assert!(!spans_compatible(-1.0, 100.0));
+    }
+
+    /// Regression test: single-point datasets have span=0.
+    /// Do NOT remove — this has regressed 4 times via worktree merges.
+    #[test]
+    fn spans_compatible_both_zero() {
+        assert!(spans_compatible(0.0, 0.0));
     }
 
     #[test]
