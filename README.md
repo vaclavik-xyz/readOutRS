@@ -13,17 +13,17 @@ Rust rewrite of [readOut](https://github.com/vaclavik-xyz/readOut) with two fron
 ## Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/gui_dashboard.JPG" width="280" alt="GUI Dashboard">
+  <img src="docs/screenshots/gui_dashboard.png" width="280" alt="GUI Dashboard">
   <br><em>GUI</em>
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/tui_dashboard.JPG" width="400" alt="TUI Dashboard">
+  <img src="docs/screenshots/tui_dashboard.png" width="400" alt="TUI Dashboard">
   <br><em>TUI</em>
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/mm_ctl.JPG" width="200" alt="Meter Control">
+  <img src="docs/screenshots/mm_ctl.png" width="200" alt="Meter Control">
   <br><em>Meter Control</em>
 </p>
 
