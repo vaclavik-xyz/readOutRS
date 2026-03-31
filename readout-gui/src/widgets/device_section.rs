@@ -224,11 +224,7 @@ pub fn show(
                             if let Some(elapsed) = energy_elapsed {
                                 let secs = elapsed.as_secs();
                                 let label = if secs >= 3600 {
-                                    format!(
-                                        "· {}h {:02}m",
-                                        secs / 3600,
-                                        (secs % 3600) / 60
-                                    )
+                                    format!("· {}h {:02}m", secs / 3600, (secs % 3600) / 60)
                                 } else if secs >= 60 {
                                     format!("· {}m {:02}s", secs / 60, secs % 60)
                                 } else {
@@ -270,7 +266,6 @@ pub fn show(
                         metric_selector(ui, usbc_metric, &mut action);
                     }
                 }
-
             } else {
                 ui.label(
                     egui::RichText::new("---")
@@ -374,32 +369,29 @@ pub fn show(
                             format!("{v:.3}")
                         }
                     };
-                    ui.with_layout(
-                        egui::Layout::top_down(egui::Align::Max),
-                        |ui| {
-                            ui.label(
-                                egui::RichText::new(fmt(y_max))
-                                    .size(9.0)
-                                    .family(egui::FontFamily::Monospace)
-                                    .color(sec),
-                            );
-                            let remaining = (ui.available_height() - 24.0).max(0.0);
-                            ui.add_space(remaining / 2.0);
-                            ui.label(
-                                egui::RichText::new(fmt(y_avg))
-                                    .size(9.0)
-                                    .family(egui::FontFamily::Monospace)
-                                    .color(sec),
-                            );
-                            ui.add_space((ui.available_height() - 12.0).max(0.0));
-                            ui.label(
-                                egui::RichText::new(fmt(y_min))
-                                    .size(9.0)
-                                    .family(egui::FontFamily::Monospace)
-                                    .color(sec),
-                            );
-                        },
-                    );
+                    ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
+                        ui.label(
+                            egui::RichText::new(fmt(y_max))
+                                .size(9.0)
+                                .family(egui::FontFamily::Monospace)
+                                .color(sec),
+                        );
+                        let remaining = (ui.available_height() - 24.0).max(0.0);
+                        ui.add_space(remaining / 2.0);
+                        ui.label(
+                            egui::RichText::new(fmt(y_avg))
+                                .size(9.0)
+                                .family(egui::FontFamily::Monospace)
+                                .color(sec),
+                        );
+                        ui.add_space((ui.available_height() - 12.0).max(0.0));
+                        ui.label(
+                            egui::RichText::new(fmt(y_min))
+                                .size(9.0)
+                                .family(egui::FontFamily::Monospace)
+                                .color(sec),
+                        );
+                    });
                 }
             });
         });

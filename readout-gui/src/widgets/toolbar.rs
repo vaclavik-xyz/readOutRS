@@ -104,10 +104,7 @@ pub fn show_title_bar(ui: &mut egui::Ui, state: &TitleBarState) -> ToolbarAction
         // ── Device toggles pill ──
         pill_group(ui, |ui| {
             if ui
-                .selectable_label(
-                    state.show_mm,
-                    egui::RichText::new("MM").size(11.0).strong(),
-                )
+                .selectable_label(state.show_mm, egui::RichText::new("MM").size(11.0).strong())
                 .on_hover_text("Show/hide Multimeter")
                 .clicked()
             {
@@ -355,6 +352,9 @@ mod tests {
         // Different icon glyphs → different shapes
         let r_shapes = format!("{:?}", running.shapes);
         let p_shapes = format!("{:?}", paused.shapes);
-        assert_ne!(r_shapes, p_shapes, "paused and running must render differently");
+        assert_ne!(
+            r_shapes, p_shapes,
+            "paused and running must render differently"
+        );
     }
 }
