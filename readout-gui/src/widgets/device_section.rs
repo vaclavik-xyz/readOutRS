@@ -185,12 +185,7 @@ pub fn show(
                 );
 
                 if device_id != DeviceId::UsbC {
-                    ui.label(
-                        egui::RichText::new(&m.mode_string)
-                            .size(9.0)
-                            .family(egui::FontFamily::Monospace)
-                            .color(theme::text_secondary(ui)),
-                    );
+                    show_mode_badge(ui, &m.mode_string, alarm);
                 }
 
                 if device_id == DeviceId::UsbC {
@@ -290,7 +285,6 @@ pub fn show(
                     }
                 }
 
-                show_alarm_badge(ui, alarm);
             } else {
                 ui.label(
                     egui::RichText::new("---")
@@ -448,19 +442,45 @@ fn connection_led(ui: &mut egui::Ui, state: &ConnectionState) {
     }
 }
 
-fn show_alarm_badge(ui: &mut egui::Ui, alarm: AlarmState) {
-    let (icon, text, color) = match alarm {
-        AlarmState::HighAlarm => ("▲", "HIGH", colors::ALARM_RED),
-        AlarmState::LowAlarm => ("▼", "LOW", colors::ALARM_RED),
-        AlarmState::Short => ("⚡", "SHORT", colors::ALARM_ORANGE),
-        AlarmState::Open => ("○", "OPEN", colors::ALARM_YELLOW),
-        AlarmState::None => return,
+fn show_mode_badge(ui: &mut egui::Ui, mode: &str, alarm: AlarmState) {
+    let (label, bg, fg) = match alarm {
+        AlarmState::HighAlarm => (
+            format!("{mode} · ▲ HIGH"),
+            colors::ALARM_RED,
+            egui::Color32::WHITE,
+        ),
+        AlarmState::LowAlarm => (
+            format!("{mode} · ▼ LOW"),
+            colors::ALARM_RED,
+            egui::Color32::WHITE,
+        ),
+        AlarmState::Short => (
+            format!("{mode} · ⚡ SHORT"),
+            colors::ALARM_ORANGE,
+            egui::Color32::WHITE,
+        ),
+        AlarmState::Open => (
+            format!("{mode} · ○ OPEN"),
+            colors::ALARM_YELLOW,
+            egui::Color32::from_rgb(40, 40, 40),
+        ),
+        AlarmState::None => (
+            mode.to_string(),
+            ui.visuals().widgets.inactive.bg_fill,
+            ui.visuals().widgets.inactive.fg_stroke.color,
+        ),
     };
-    ui.add_space(4.0);
-    ui.label(
-        egui::RichText::new(format!("{icon} {text}"))
-            .size(11.0)
-            .strong()
-            .color(color),
-    );
+    egui::Frame::new()
+        .fill(bg)
+        .corner_radius(egui::CornerRadius::same(3))
+        .inner_margin(egui::Margin::symmetric(4, 1))
+        .show(ui, |ui| {
+            ui.label(
+                egui::RichText::new(label)
+                    .size(9.0)
+                    .family(egui::FontFamily::Monospace)
+                    .strong()
+                    .color(fg),
+            );
+        });
 }
