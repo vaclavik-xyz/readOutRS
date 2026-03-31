@@ -187,7 +187,8 @@ pub fn show(
                 if device_id != DeviceId::UsbC {
                     ui.label(
                         egui::RichText::new(&m.mode_string)
-                            .size(10.0)
+                            .size(9.0)
+                            .family(egui::FontFamily::Monospace)
                             .color(theme::text_secondary(ui)),
                     );
                 }
@@ -368,6 +369,7 @@ pub fn show(
                         .allow_scroll(false)
                         .show_axes([false, false])
                         .show_grid(false)
+                        .show_background(false)
                         .auto_bounds(egui::Vec2b::new(true, true))
                         .show(ui, |plot_ui| {
                             if !chart_data.is_empty() {
