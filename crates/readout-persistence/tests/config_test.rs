@@ -1,4 +1,5 @@
 use readout_persistence::config::*;
+use readout_persistence::config_store::{self, ConfigStoreError};
 
 #[test]
 fn default_config_is_valid() {
@@ -72,4 +73,36 @@ fn case_insensitive_theme_parsing() {
     let json = r#"{"dashboard_theme": "DARK"}"#;
     let config: AppConfiguration = serde_json::from_str(json).unwrap();
     assert_eq!(config.dashboard_theme, DashboardTheme::Dark);
+}
+
+#[test]
+fn startup_load_treats_missing_default_config_as_first_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("missing-default.json");
+
+    let loaded = config_store::load_for_startup(&path, false).unwrap();
+
+    assert!(loaded.first_run);
+    assert_eq!(loaded.config, AppConfiguration::default());
+}
+
+#[test]
+fn startup_load_rejects_missing_explicit_config_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("missing-explicit.json");
+
+    let err = config_store::load_for_startup(&path, true).unwrap_err();
+
+    assert!(matches!(err, ConfigStoreError::ReadFailed(_)));
+}
+
+#[test]
+fn startup_load_rejects_existing_malformed_config() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.json");
+    std::fs::write(&path, "{not-json").unwrap();
+
+    let err = config_store::load_for_startup(&path, false).unwrap_err();
+
+    assert!(matches!(err, ConfigStoreError::ParseFailed(_)));
 }

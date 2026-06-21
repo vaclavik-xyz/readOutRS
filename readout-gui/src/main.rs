@@ -34,14 +34,17 @@ fn main() {
 
     let cli = Cli::parse();
 
+    let explicit_config_path = cli.config.is_some();
     let config_path = cli.config.unwrap_or_else(config_store::default_config_path);
 
-    let first_run = !config_path.exists();
-
-    let mut config = config_store::load(&config_path).unwrap_or_else(|e| {
-        tracing::warn!("Failed to load config: {:?}, using defaults", e);
-        readout_persistence::config::AppConfiguration::default()
-    });
+    let startup_config = config_store::load_for_startup(&config_path, explicit_config_path)
+        .unwrap_or_else(|e| {
+            tracing::error!("Failed to load config {}: {:?}", config_path.display(), e);
+            eprintln!("Failed to load config {}: {e:?}", config_path.display());
+            std::process::exit(1);
+        });
+    let first_run = startup_config.first_run;
+    let mut config = startup_config.config;
 
     if cli.simulator {
         config.use_simulator = true;

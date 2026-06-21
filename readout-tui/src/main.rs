@@ -22,12 +22,15 @@ async fn main() {
 
     let cli = Cli::parse();
 
+    let explicit_config_path = cli.config.is_some();
     let config_path = cli.config.unwrap_or_else(config_store::default_config_path);
 
-    let mut config = config_store::load(&config_path).unwrap_or_else(|e| {
-        eprintln!("Failed to load config: {e:?}, using defaults");
-        readout_persistence::config::AppConfiguration::default()
-    });
+    let mut config = config_store::load_for_startup(&config_path, explicit_config_path)
+        .unwrap_or_else(|e| {
+            eprintln!("Failed to load config {}: {e:?}", config_path.display());
+            std::process::exit(1);
+        })
+        .config;
 
     if cli.simulator {
         config.use_simulator = true;

@@ -1,12 +1,18 @@
 use crate::config::AppConfiguration;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, PartialEq)]
+pub struct StartupConfiguration {
+    pub config: AppConfiguration,
+    pub first_run: bool,
+}
 
 pub fn default_config_path() -> PathBuf {
     let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
     base.join("readout").join("config.json")
 }
 
-pub fn load(path: &std::path::Path) -> Result<AppConfiguration, ConfigStoreError> {
+pub fn load(path: &Path) -> Result<AppConfiguration, ConfigStoreError> {
     if !path.exists() {
         return Ok(AppConfiguration::default());
     }
@@ -15,7 +21,25 @@ pub fn load(path: &std::path::Path) -> Result<AppConfiguration, ConfigStoreError
     serde_json::from_str(&data).map_err(|e| ConfigStoreError::ParseFailed(e.to_string()))
 }
 
-pub fn save(config: &AppConfiguration, path: &std::path::Path) -> Result<(), ConfigStoreError> {
+pub fn load_for_startup(
+    path: &Path,
+    explicit_path: bool,
+) -> Result<StartupConfiguration, ConfigStoreError> {
+    let first_run = !path.exists();
+    if explicit_path && first_run {
+        return Err(ConfigStoreError::ReadFailed(format!(
+            "config file does not exist: {}",
+            path.display()
+        )));
+    }
+
+    Ok(StartupConfiguration {
+        config: load(path)?,
+        first_run,
+    })
+}
+
+pub fn save(config: &AppConfiguration, path: &Path) -> Result<(), ConfigStoreError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| ConfigStoreError::WriteFailed(e.to_string()))?;
