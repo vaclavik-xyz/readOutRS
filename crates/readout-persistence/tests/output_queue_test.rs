@@ -18,5 +18,16 @@ async fn queue_drops_when_full() {
     assert!(queue.try_send("two".into()).is_ok());
     // Third should report dropped
     let result = queue.try_send("three".into());
-    assert!(result.is_err());
+    assert!(matches!(result, Err(QueueFullError::Full)));
+}
+
+#[tokio::test]
+async fn queue_reports_closed_when_receiver_is_dropped() {
+    let (tx, rx) = mpsc::channel::<String>(1);
+    drop(rx);
+    let queue = OutputWriteQueue::new(tx, 1);
+
+    let result = queue.try_send("closed".into());
+
+    assert!(matches!(result, Err(QueueFullError::Closed)));
 }
