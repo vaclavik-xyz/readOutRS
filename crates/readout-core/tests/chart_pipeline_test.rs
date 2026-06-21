@@ -44,8 +44,9 @@ fn time_filter_excludes_old_samples() {
     // Query last 30 seconds from ts=200
     let points = pipeline.query_with_now(Duration::from_secs(30), 800, now);
     // Should only have samples from ts=170..199
-    assert!(points.len() <= 30);
-    assert!(points.first().unwrap().0 >= Duration::from_secs(170));
+    assert_eq!(points.len(), 30);
+    assert_eq!(points.first(), Some(&(Duration::from_secs(170), 70.0)));
+    assert_eq!(points.last(), Some(&(Duration::from_secs(199), 99.0)));
 }
 
 #[test]

@@ -99,6 +99,28 @@ fn parse_preserves_overload_row() {
 }
 
 #[test]
+fn parse_preserves_open_and_short_rows() {
+    let records = parse(
+        "timestamp,device,value,unit,mode,is_overload,is_open,is_short\n\
+2026-03-29T10:30:00.123Z,Multimeter,OL,V DC,DCV,false,true,false\n\
+2026-03-29T10:30:01.123Z,Multimeter,0.2,Ω,RES,false,false,true\n",
+    );
+
+    assert_eq!(records.len(), 2);
+    assert!(!records[0].is_overload);
+    assert!(records[0].is_open);
+    assert!(!records[0].is_short);
+    assert_eq!(records[0].value, None);
+    assert_eq!(records[0].mode, "DCV");
+
+    assert!(!records[1].is_overload);
+    assert!(!records[1].is_open);
+    assert!(records[1].is_short);
+    assert_eq!(records[1].value, Some(0.2));
+    assert_eq!(records[1].mode, "RES");
+}
+
+#[test]
 fn parse_skips_invalid_numeric_token() {
     let records = parse(
         "timestamp,device,value,unit,mode,is_overload,is_open,is_short\n\

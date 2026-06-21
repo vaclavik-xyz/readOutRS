@@ -20,7 +20,10 @@ fn min_max_preserves_peaks() {
 
     let downsampled = min_max_downsample(&samples, 4);
 
-    assert!(downsampled.iter().any(|(_, value)| *value == 100.0));
+    assert_eq!(
+        downsampled,
+        vec![point(0, 1.0), point(3, 100.0), point(4, 4.0), point(7, 7.0)]
+    );
 }
 
 #[test]
@@ -70,6 +73,12 @@ fn average_downsample_reduces_count() {
 
     let downsampled = average_downsample(&samples, 3);
 
-    assert!(downsampled.len() < samples.len());
-    assert_eq!(downsampled.len(), 3);
+    assert_eq!(
+        downsampled,
+        vec![
+            (Duration::from_secs_f64(0.5), 2.0),
+            (Duration::from_secs_f64(2.5), 6.0),
+            (Duration::from_secs_f64(4.5), 10.0)
+        ]
+    );
 }

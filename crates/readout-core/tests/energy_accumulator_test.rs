@@ -36,6 +36,11 @@ fn reset_clears_accumulator() {
     acc.reset();
     assert_eq!(acc.energy_mwh(), 0.0);
     assert_eq!(acc.energy_mah(), 0.0);
+
+    let snap = acc.update(5.0, 2.0, Duration::from_secs(7200));
+    assert!((snap.power_watts - 10.0).abs() < 0.001);
+    assert_eq!(snap.energy_mwh, 0.0);
+    assert_eq!(snap.energy_mah, 0.0);
 }
 
 #[test]
@@ -44,5 +49,6 @@ fn negative_voltage_uses_abs_power() {
     acc.update(-5.0, 2.0, Duration::from_secs(0));
     let snap = acc.update(-5.0, 2.0, Duration::from_secs(3600));
     assert!((snap.power_watts - 10.0).abs() < 0.001);
-    assert!(snap.energy_mwh > 0.0);
+    assert!((snap.energy_mwh - 10000.0).abs() < 1.0);
+    assert!((snap.energy_mah - 2000.0).abs() < 1.0);
 }
