@@ -215,10 +215,9 @@ impl SettingsPanel {
                         });
                         ui.checkbox(&mut config.check_for_updates, "Check for updates on startup");
                         if let Some(new_version) = update_available {
-                            let is_brew = readout_core::update_checker::is_homebrew();
                             ui.colored_label(egui::Color32::from_rgb(255, 200, 50), format!("Update v{new_version} available"));
-                            if is_brew {
-                                ui.label("Run: brew upgrade readout");
+                            if let Some(command) = readout_core::update_checker::update_command() {
+                                ui.label(format!("Run: {command}"));
                             } else {
                                 ui.horizontal(|ui| {
                                     ui.label("Download from GitHub:");

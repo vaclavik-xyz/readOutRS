@@ -3794,7 +3794,7 @@ checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
 
 [[package]]
 name = "readout-core"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "chrono",
  "serde",
@@ -3804,7 +3804,7 @@ dependencies = [
 
 [[package]]
 name = "readout-gui"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "chrono",
  "clap",
@@ -3826,7 +3826,7 @@ dependencies = [
 
 [[package]]
 name = "readout-io"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "readout-core",
  "readout-persistence",
@@ -3840,7 +3840,7 @@ dependencies = [
 
 [[package]]
 name = "readout-persistence"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "chrono",
  "dirs",
@@ -3854,7 +3854,7 @@ dependencies = [
 
 [[package]]
 name = "readout-tui"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "clap",
  "crossterm",

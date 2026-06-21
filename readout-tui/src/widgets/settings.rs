@@ -403,11 +403,9 @@ impl TuiSettingsScreen {
                 Span::raw(readout_core::update_checker::CURRENT_VERSION),
             ]));
             if let Some(new_ver) = update_available {
-                let hint = if readout_core::update_checker::is_homebrew() {
-                    " — brew upgrade readout"
-                } else {
-                    " — github.com/vaclavik-xyz/readOutRS/releases"
-                };
+                let hint = readout_core::update_checker::update_command()
+                    .map(|command| format!(" — {command}"))
+                    .unwrap_or_else(|| " — github.com/vaclavik-xyz/readOutRS/releases".to_string());
                 lines.push(Line::from(vec![
                     Span::styled(format!("{:>24}  ", ""), Style::default()),
                     Span::styled(

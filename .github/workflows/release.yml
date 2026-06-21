@@ -34,6 +34,16 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
 
+      - name: Verify tag matches Cargo version
+        shell: bash
+        run: |
+          CARGO_VERSION=$(grep -m1 '^version = ' Cargo.toml | sed -E 's/version = "([^"]+)"/\1/')
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Cargo.toml version $CARGO_VERSION does not match tag $GITHUB_REF_NAME"
+            exit 1
+          fi
+
       - name: Install Linux system deps
         if: runner.os == 'Linux'
         run: |

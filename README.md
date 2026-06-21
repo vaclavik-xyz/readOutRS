@@ -84,9 +84,11 @@ brew tap vaclavik-xyz/tap
 
 # GUI app → /Applications
 brew install --cask readout
+brew upgrade --cask readout
 
 # CLI binaries (readout-gui + readout-tui)
 brew install readout
+brew upgrade readout
 ```
 
 ### macOS (DMG)
