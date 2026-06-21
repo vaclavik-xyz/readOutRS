@@ -2,7 +2,15 @@ use readout_core::measurement_mode::MeasurementMode;
 use readout_core::types::{Command, MultimeterCommand, RuntimeEvent};
 use readout_io::runtime::Runtime;
 use readout_persistence::config::AppConfiguration;
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
+
+async fn await_runtime(handle: JoinHandle<()>) {
+    tokio::time::timeout(std::time::Duration::from_secs(5), handle)
+        .await
+        .expect("runtime task did not stop")
+        .expect("runtime task panicked");
+}
 
 #[tokio::test]
 async fn runtime_receives_measurements() {
@@ -37,7 +45,7 @@ async fn runtime_receives_measurements() {
     assert!(measurement_count >= 5);
 
     cancel.cancel();
-    let _ = handle.await;
+    await_runtime(handle).await;
 }
 
 #[tokio::test]
@@ -59,11 +67,12 @@ async fn runtime_stop_command_shuts_down() {
     // Give it time to start
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
-    // Send stop
-    let _ = cmd_tx.send(Command::Stop).await;
+    cmd_tx.send(Command::Stop).await.expect("send stop command");
 
-    let result = tokio::time::timeout(std::time::Duration::from_secs(3), handle).await;
-    assert!(result.is_ok());
+    tokio::time::timeout(std::time::Duration::from_secs(3), handle)
+        .await
+        .expect("runtime did not stop after Command::Stop")
+        .expect("runtime task panicked");
 }
 
 #[tokio::test]
@@ -123,5 +132,5 @@ async fn meter_command_changes_mode() {
     assert!(saw_resistance_state);
 
     cancel.cancel();
-    let _ = handle.await;
+    await_runtime(handle).await;
 }

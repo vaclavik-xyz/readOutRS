@@ -1,8 +1,26 @@
 use readout_io::device_session::*;
 use readout_io::transport::*;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::Duration;
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
+
+async fn recv_session_event(
+    event_rx: &mut mpsc::Receiver<DeviceSessionEvent>,
+) -> DeviceSessionEvent {
+    tokio::time::timeout(Duration::from_secs(2), event_rx.recv())
+        .await
+        .expect("timed out waiting for device session event")
+        .expect("device session event channel closed")
+}
+
+async fn await_session(handle: JoinHandle<()>) {
+    tokio::time::timeout(Duration::from_secs(2), handle)
+        .await
+        .expect("device session did not stop")
+        .expect("device session task panicked");
+}
 
 // Mock transport that fails N times then succeeds
 struct MockTransport {
@@ -63,20 +81,19 @@ async fn connects_successfully() {
 
     let mut saw_connected = false;
     for _ in 0..10 {
-        if let Some(event) = event_rx.recv().await {
-            if matches!(
-                event,
-                DeviceSessionEvent::StateChanged(SessionState::Connected)
-            ) {
-                saw_connected = true;
-                break;
-            }
+        let event = recv_session_event(&mut event_rx).await;
+        if matches!(
+            event,
+            DeviceSessionEvent::StateChanged(SessionState::Connected)
+        ) {
+            saw_connected = true;
+            break;
         }
     }
     assert!(saw_connected);
 
     cancel.cancel();
-    let _ = handle.await;
+    await_session(handle).await;
 }
 
 #[tokio::test]
@@ -99,24 +116,23 @@ async fn reconnects_after_failure() {
     let mut saw_connected = false;
     let mut saw_reconnecting = false;
     for _ in 0..30 {
-        if let Some(event) = event_rx.recv().await {
-            match &event {
-                DeviceSessionEvent::StateChanged(SessionState::Reconnecting { .. }) => {
-                    saw_reconnecting = true;
-                }
-                DeviceSessionEvent::StateChanged(SessionState::Connected) => {
-                    saw_connected = true;
-                    break;
-                }
-                _ => {}
+        let event = recv_session_event(&mut event_rx).await;
+        match &event {
+            DeviceSessionEvent::StateChanged(SessionState::Reconnecting { .. }) => {
+                saw_reconnecting = true;
             }
+            DeviceSessionEvent::StateChanged(SessionState::Connected) => {
+                saw_connected = true;
+                break;
+            }
+            _ => {}
         }
     }
     assert!(saw_reconnecting);
     assert!(saw_connected);
 
     cancel.cancel();
-    let _ = handle.await;
+    await_session(handle).await;
 }
 
 #[tokio::test]
@@ -133,8 +149,7 @@ async fn cancellation_stops_loop() {
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     cancel.cancel();
-    let result = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
-    assert!(result.is_ok());
+    await_session(handle).await;
 }
 
 #[tokio::test]
@@ -169,17 +184,16 @@ async fn emits_frames() {
 
     let mut frame_count = 0;
     for _ in 0..20 {
-        if let Some(event) = event_rx.recv().await {
-            if matches!(event, DeviceSessionEvent::FrameReceived(_)) {
-                frame_count += 1;
-                if frame_count >= 3 {
-                    break;
-                }
+        let event = recv_session_event(&mut event_rx).await;
+        if matches!(event, DeviceSessionEvent::FrameReceived(_)) {
+            frame_count += 1;
+            if frame_count >= 3 {
+                break;
             }
         }
     }
     assert!(frame_count >= 3);
 
     cancel.cancel();
-    let _ = handle.await;
+    await_session(handle).await;
 }

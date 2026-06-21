@@ -51,20 +51,22 @@ async fn runtime_simulator_produces_measurements_and_shuts_down() {
     assert!(usbc_count >= 5, "usbc: {usbc_count}");
 
     // Send stop and verify clean shutdown via Command::Stop
-    let _ = command_tx.send(Command::Stop).await;
+    command_tx
+        .send(Command::Stop)
+        .await
+        .expect("send stop command");
 
-    // Give runtime time to process Command::Stop
     match tokio::time::timeout(Duration::from_secs(3), &mut handle).await {
         Ok(result) => {
             result.expect("runtime task panicked");
         }
         Err(_) => {
-            // Fallback: Command::Stop didn't work, force cancel
             cancel.cancel();
             tokio::time::timeout(Duration::from_secs(5), handle)
                 .await
-                .expect("runtime did not shut down even after cancel")
+                .expect("runtime did not shut down after cancel cleanup")
                 .expect("runtime task panicked");
+            panic!("runtime did not shut down after Command::Stop");
         }
     }
 }

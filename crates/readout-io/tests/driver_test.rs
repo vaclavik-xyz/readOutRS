@@ -106,12 +106,23 @@ async fn usbc_driver_accumulates_energy() {
     let mut driver = UsbCDriver::new(transport);
     driver.connect().await.unwrap();
 
-    // Read several measurements to accumulate energy
+    let first = driver.read_measurement().await.unwrap();
     for _ in 0..5 {
-        let _ = driver.read_measurement().await;
+        driver.read_measurement().await.unwrap();
     }
 
     let m = driver.read_measurement().await.unwrap();
-    assert!(m.energy_mwh.is_some());
-    assert!(m.energy_mah.is_some());
+    let first_mwh = first.energy_mwh.expect("initial energy mWh");
+    let first_mah = first.energy_mah.expect("initial energy mAh");
+    let final_mwh = m.energy_mwh.expect("final energy mWh");
+    let final_mah = m.energy_mah.expect("final energy mAh");
+
+    assert!(
+        final_mwh > first_mwh,
+        "energy mWh did not increase: {final_mwh} <= {first_mwh}"
+    );
+    assert!(
+        final_mah > first_mah,
+        "energy mAh did not increase: {final_mah} <= {first_mah}"
+    );
 }
