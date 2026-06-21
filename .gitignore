@@ -4,3 +4,5 @@
 .worktrees/
 .superpowers/
 .claude/settings.local.json
+# roborev snapshots
+/.roborev/
