@@ -6,3 +6,6 @@
 .claude/settings.local.json
 # roborev snapshots
 /.roborev/
+
+# clawpatch local state
+/.clawpatch/
