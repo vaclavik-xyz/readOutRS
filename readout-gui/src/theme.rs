@@ -111,39 +111,40 @@ fn dark_visuals() -> egui::Visuals {
     // Non-interactive (labels, frames)
     v.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(16, 19, 26);
     v.widgets.noninteractive.fg_stroke =
-        egui::Stroke::new(1.0, egui::Color32::from_rgb(215, 220, 230));
-    v.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, border);
+        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(215, 220, 230));
+    v.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0_f32, border);
     v.widgets.noninteractive.corner_radius = r;
 
     // Inactive (buttons at rest)
     v.widgets.inactive.bg_fill = egui::Color32::from_rgb(22, 26, 35);
-    v.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(180, 185, 200));
-    v.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, border);
+    v.widgets.inactive.fg_stroke =
+        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(180, 185, 200));
+    v.widgets.inactive.bg_stroke = egui::Stroke::new(1.0_f32, border);
     v.widgets.inactive.corner_radius = r;
 
     // Hovered
     v.widgets.hovered.bg_fill = egui::Color32::from_rgb(28, 35, 48);
-    v.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
-    v.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(0, 140, 125));
+    v.widgets.hovered.fg_stroke = egui::Stroke::new(1.0_f32, egui::Color32::WHITE);
+    v.widgets.hovered.bg_stroke = egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(0, 140, 125));
     v.widgets.hovered.corner_radius = r;
 
     // Active (pressed / selected)
     v.widgets.active.bg_fill = egui::Color32::from_rgb(15, 45, 50);
-    v.widgets.active.fg_stroke = egui::Stroke::new(1.0, colors::ACCENT);
-    v.widgets.active.bg_stroke = egui::Stroke::new(1.0, colors::ACCENT);
+    v.widgets.active.fg_stroke = egui::Stroke::new(1.0_f32, colors::ACCENT);
+    v.widgets.active.bg_stroke = egui::Stroke::new(1.0_f32, colors::ACCENT);
     v.widgets.active.corner_radius = r;
 
     // Open (combo boxes, menus)
     v.widgets.open.bg_fill = egui::Color32::from_rgb(22, 28, 40);
-    v.widgets.open.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
+    v.widgets.open.fg_stroke = egui::Stroke::new(1.0_f32, egui::Color32::WHITE);
     v.widgets.open.corner_radius = r;
 
     // Selection
     v.selection.bg_fill = egui::Color32::from_rgb(0, 70, 62);
-    v.selection.stroke = egui::Stroke::new(1.0, colors::ACCENT);
+    v.selection.stroke = egui::Stroke::new(1.0_f32, colors::ACCENT);
 
     // Window chrome
-    v.window_stroke = egui::Stroke::new(1.0, border);
+    v.window_stroke = egui::Stroke::new(1.0_f32, border);
     v.window_shadow = egui::Shadow {
         offset: [0, 4],
         blur: 16,
@@ -169,33 +170,33 @@ fn light_visuals() -> egui::Visuals {
     // Non-interactive
     v.widgets.noninteractive.bg_fill = egui::Color32::WHITE;
     v.widgets.noninteractive.fg_stroke =
-        egui::Stroke::new(1.0, egui::Color32::from_rgb(18, 22, 32));
-    v.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, border);
+        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(18, 22, 32));
+    v.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0_f32, border);
     v.widgets.noninteractive.corner_radius = r;
 
     // Inactive
     v.widgets.inactive.bg_fill = egui::Color32::from_rgb(232, 236, 245);
-    v.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(50, 56, 72));
-    v.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, border);
+    v.widgets.inactive.fg_stroke = egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(50, 56, 72));
+    v.widgets.inactive.bg_stroke = egui::Stroke::new(1.0_f32, border);
     v.widgets.inactive.corner_radius = r;
 
     // Hovered
     v.widgets.hovered.bg_fill = egui::Color32::from_rgb(220, 228, 242);
-    v.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(18, 22, 32));
-    v.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(0, 140, 125));
+    v.widgets.hovered.fg_stroke = egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(18, 22, 32));
+    v.widgets.hovered.bg_stroke = egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(0, 140, 125));
     v.widgets.hovered.corner_radius = r;
 
     // Active
     v.widgets.active.bg_fill = egui::Color32::from_rgb(210, 240, 235);
-    v.widgets.active.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(0, 120, 105));
+    v.widgets.active.fg_stroke = egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(0, 120, 105));
     v.widgets.active.corner_radius = r;
 
     // Selection
     v.selection.bg_fill = egui::Color32::from_rgb(190, 235, 228);
-    v.selection.stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(0, 150, 132));
+    v.selection.stroke = egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(0, 150, 132));
 
     // Window chrome
-    v.window_stroke = egui::Stroke::new(1.0, border);
+    v.window_stroke = egui::Stroke::new(1.0_f32, border);
     v.window_shadow = egui::Shadow {
         offset: [0, 2],
         blur: 8,

@@ -84,7 +84,7 @@ fn pill_divider(ui: &mut egui::Ui) {
         let color = ui.visuals().widgets.noninteractive.bg_stroke.color;
         ui.painter().line_segment(
             [rect.center_top(), rect.center_bottom()],
-            egui::Stroke::new(1.0, color),
+            egui::Stroke::new(1.0_f32, color),
         );
     }
 }

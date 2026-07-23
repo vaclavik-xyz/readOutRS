@@ -20,6 +20,10 @@ const COLORS: &[[u8; 3]] = &[
     [255, 217, 61],
     [168, 120, 255],
 ];
+const LIVE_TAIL_SIGNATURE_LEN: usize = 256;
+const LIVE_PREFIX_BLOCK_LEN: usize = 4096;
+const LIVE_PREFIX_HASH_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+const LIVE_PREFIX_HASH_PRIME: u64 = 0x0000_0100_0000_01b3;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct HoveredRecord {
@@ -96,6 +100,9 @@ pub struct ViewerSource {
     mode_filter_initialized: bool,
     pub runtime_anchor: Option<RuntimeAnchor>,
     pub last_read_pos: u64,
+    pub last_read_tail: Vec<u8>,
+    pub read_block_hashes: Vec<u64>,
+    pub next_verify_block: usize,
     pub last_modified: Option<SystemTime>,
     pub is_live: bool,
     pub render_revision: u64,
@@ -170,6 +177,9 @@ impl CsvDataStore {
             mode_filter_initialized: false,
             runtime_anchor: None,
             last_read_pos: 0,
+            last_read_tail: Vec::new(),
+            read_block_hashes: Vec::new(),
+            next_verify_block: 0,
             last_modified: None,
             is_live: true,
             render_revision: 0,
@@ -230,6 +240,9 @@ impl CsvDataStore {
             mode_filter_initialized: false,
             runtime_anchor: None,
             last_read_pos,
+            last_read_tail: tail_signature(&content[..last_read_pos as usize]),
+            read_block_hashes: block_hashes(&content[..last_read_pos as usize]),
+            next_verify_block: 0,
             last_modified,
             is_live: true,
             render_revision: 0,
@@ -662,6 +675,9 @@ impl CsvDataStore {
             mode_filter_initialized: false,
             runtime_anchor: None,
             last_read_pos,
+            last_read_tail: tail_signature(&content[..last_read_pos as usize]),
+            read_block_hashes: block_hashes(&content[..last_read_pos as usize]),
+            next_verify_block: 0,
             last_modified,
             is_live,
             render_revision: 0,
@@ -768,13 +784,33 @@ fn poll_path_source(source: &mut ViewerSource) {
     let file_len = metadata.len();
     let modified = metadata.modified().ok();
 
-    let replaced_in_place = matches!(
-        (&source.last_modified, &modified),
-        (Some(previous), Some(current)) if current > previous && file_len <= source.last_read_pos
-    );
+    let consumed_block_changed =
+        if file_len >= source.last_read_pos && !source.read_block_hashes.is_empty() {
+            let block_index = source.next_verify_block % source.read_block_hashes.len();
+            let changed = matches!(
+                read_block_hash_at(&mut handle, source.last_read_pos, block_index),
+                Ok(current_hash) if current_hash != source.read_block_hashes[block_index]
+            );
+            if !changed {
+                source.next_verify_block = (block_index + 1) % source.read_block_hashes.len();
+            }
+            changed
+        } else {
+            false
+        };
+    let consumed_tail_changed = file_len >= source.last_read_pos
+        && !source.last_read_tail.is_empty()
+        && matches!(
+            read_tail_at(&mut handle, source.last_read_pos, source.last_read_tail.len()),
+            Ok(current_tail) if current_tail != source.last_read_tail
+        );
+    let consumed_prefix_changed = consumed_block_changed || consumed_tail_changed;
 
-    if file_len < source.last_read_pos || replaced_in_place {
+    if file_len < source.last_read_pos || consumed_prefix_changed {
         source.last_read_pos = 0;
+        source.last_read_tail.clear();
+        source.read_block_hashes.clear();
+        source.next_verify_block = 0;
         source.records.clear();
         source.mode_filter_initialized = false;
         source.visible_modes.clear();
@@ -782,6 +818,7 @@ fn poll_path_source(source: &mut ViewerSource) {
     }
 
     if file_len <= source.last_read_pos {
+        source.last_modified = modified;
         return;
     }
 
@@ -796,6 +833,7 @@ fn poll_path_source(source: &mut ViewerSource) {
 
     let consumed_len = last_complete_line_offset(&unread);
     if consumed_len == 0 {
+        source.last_modified = modified;
         return;
     }
 
@@ -811,8 +849,90 @@ fn poll_path_source(source: &mut ViewerSource) {
         refresh_source_metadata(source);
     }
 
+    update_block_hashes(
+        &mut source.read_block_hashes,
+        source.last_read_pos,
+        &unread[..consumed_len],
+    );
     source.last_read_pos += consumed_len as u64;
+    update_tail_signature(&mut source.last_read_tail, &unread[..consumed_len]);
     source.last_modified = modified;
+}
+
+fn read_block_hash_at(
+    handle: &mut std::fs::File,
+    end: u64,
+    block_index: usize,
+) -> Result<u64, std::io::Error> {
+    let start = block_index as u64 * LIVE_PREFIX_BLOCK_LEN as u64;
+    let length = (end - start).min(LIVE_PREFIX_BLOCK_LEN as u64) as usize;
+    handle.seek(SeekFrom::Start(start))?;
+    let mut block = vec![0; length];
+    handle.read_exact(&mut block)?;
+    Ok(prefix_hash(&block))
+}
+
+fn read_tail_at(
+    handle: &mut std::fs::File,
+    end: u64,
+    length: usize,
+) -> Result<Vec<u8>, std::io::Error> {
+    let start = end.saturating_sub(length as u64);
+    handle.seek(SeekFrom::Start(start))?;
+    let mut tail = vec![0; (end - start) as usize];
+    handle.read_exact(&mut tail)?;
+    Ok(tail)
+}
+
+fn tail_signature(bytes: &[u8]) -> Vec<u8> {
+    bytes[bytes.len().saturating_sub(LIVE_TAIL_SIGNATURE_LEN)..].to_vec()
+}
+
+fn prefix_hash(bytes: &[u8]) -> u64 {
+    extend_prefix_hash(LIVE_PREFIX_HASH_OFFSET, bytes)
+}
+
+fn block_hashes(bytes: &[u8]) -> Vec<u64> {
+    bytes
+        .chunks(LIVE_PREFIX_BLOCK_LEN)
+        .map(prefix_hash)
+        .collect()
+}
+
+fn update_block_hashes(hashes: &mut Vec<u64>, previous_len: u64, appended: &[u8]) {
+    let mut consumed = 0;
+    let partial_len = previous_len as usize % LIVE_PREFIX_BLOCK_LEN;
+
+    if partial_len > 0 {
+        let extension_len = (LIVE_PREFIX_BLOCK_LEN - partial_len).min(appended.len());
+        let last_hash = hashes
+            .last_mut()
+            .expect("partial live CSV block must have a hash");
+        *last_hash = extend_prefix_hash(*last_hash, &appended[..extension_len]);
+        consumed = extension_len;
+    }
+
+    hashes.extend(block_hashes(&appended[consumed..]));
+}
+
+fn extend_prefix_hash(mut hash: u64, bytes: &[u8]) -> u64 {
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(LIVE_PREFIX_HASH_PRIME);
+    }
+    hash
+}
+
+fn update_tail_signature(signature: &mut Vec<u8>, appended: &[u8]) {
+    if appended.len() >= LIVE_TAIL_SIGNATURE_LEN {
+        *signature = tail_signature(appended);
+        return;
+    }
+
+    signature.extend_from_slice(appended);
+    if signature.len() > LIVE_TAIL_SIGNATURE_LEN {
+        signature.drain(..signature.len() - LIVE_TAIL_SIGNATURE_LEN);
+    }
 }
 
 fn parse_initial_records(content: &[u8]) -> Result<(Vec<CsvRecord>, u64), std::io::Error> {
@@ -1177,6 +1297,9 @@ mod tests {
             mode_filter_initialized: true,
             runtime_anchor: None,
             last_read_pos: 0,
+            last_read_tail: Vec::new(),
+            read_block_hashes: Vec::new(),
+            next_verify_block: 0,
             last_modified: None,
             is_live: false,
             render_revision: 0,
@@ -1516,6 +1639,41 @@ mod tests {
         let points = store.query_points(source_id, 32);
         assert_eq!(points.len(), 1);
         assert_eq!(points[0].1, 9.0);
+
+        fs::remove_file(path).expect("remove temp csv");
+    }
+
+    #[test]
+    fn live_tail_reload_detects_rewrite_before_tail_when_file_grows() {
+        let mut initial =
+            "timestamp,device,value,unit,mode,is_overload,is_open,is_short\n".to_owned();
+        for index in 0..140 {
+            let minute = index / 60;
+            let second = index % 60;
+            initial.push_str(&format!(
+                "2026-03-29T10:{minute:02}:{second:02}Z,Multimeter,{},V,DCV,false,false,false\n",
+                index + 1
+            ));
+        }
+        let path = write_temp_csv(&initial);
+
+        let mut store = CsvDataStore::new();
+        let source_id = store
+            .attach_live_csv(DeviceId::Multimeter, path.clone())
+            .expect("attach live csv");
+
+        let mut rewritten = initial.replacen(",71,V,", ",91,V,", 1);
+        rewritten.push_str("2026-03-29T10:02:20Z,Multimeter,141,V,DCV,false,false,false\n");
+        fs::write(&path, rewritten).expect("rewrite and grow csv");
+
+        // The rotating verifier checks the first 4 KiB block, then the changed second block.
+        store.poll_live_sources();
+        store.poll_live_sources();
+
+        let source = store.source_by_id(source_id).expect("live CSV source");
+        assert_eq!(source.records.len(), 141);
+        assert_eq!(source.records[70].value, Some(91.0));
+        assert_eq!(source.records[140].value, Some(141.0));
 
         fs::remove_file(path).expect("remove temp csv");
     }

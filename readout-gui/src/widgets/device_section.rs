@@ -350,7 +350,7 @@ pub fn show(
                             if !chart_data.is_empty() {
                                 plot_ui.line(
                                     egui_plot::Line::new(title, chart_data)
-                                        .stroke(egui::Stroke::new(1.5, line_color)),
+                                        .stroke(egui::Stroke::new(1.5_f32, line_color)),
                                 );
                             }
                         });
@@ -499,7 +499,7 @@ fn metric_selector(ui: &mut egui::Ui, current: UsbCMetric, action: &mut SectionA
                             let color = ui.visuals().widgets.noninteractive.bg_stroke.color;
                             ui.painter().line_segment(
                                 [rect.center_top(), rect.center_bottom()],
-                                egui::Stroke::new(1.0, color),
+                                egui::Stroke::new(1.0_f32, color),
                             );
                         }
                     }

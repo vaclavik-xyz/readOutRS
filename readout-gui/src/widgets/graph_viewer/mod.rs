@@ -482,7 +482,7 @@ impl GraphViewerWindow {
 
                         plot_ui.line(
                             egui_plot::Line::new(file.label.clone(), cached)
-                                .stroke(egui::Stroke::new(1.5, file.color)),
+                                .stroke(egui::Stroke::new(1.5_f32, file.color)),
                         );
                     }
                 }

@@ -129,7 +129,7 @@ pub fn draw_measurements(
                 ],
             )
             .color(Color32::YELLOW)
-            .width(1.5),
+            .width(1.5_f32),
         );
     }
 
@@ -140,7 +140,7 @@ pub fn draw_measurements(
                 vec![[from.x, from.y], [to.x, to.y]],
             )
             .color(Color32::YELLOW.linear_multiply(0.7))
-            .width(1.0)
+            .width(1.0_f32)
             .style(LineStyle::dashed_dense()),
         );
     }
@@ -204,20 +204,20 @@ pub fn draw_selection(plot_ui: &mut PlotUi<'_>, selection: Option<(f64, f64)>) {
                 ],
             )
             .fill_color(fill)
-            .stroke(Stroke::new(0.0, Color32::TRANSPARENT)),
+            .stroke(Stroke::new(0.0_f32, Color32::TRANSPARENT)),
         );
     }
 
     plot_ui.vline(
         VLine::new("selection_left", x_min)
             .color(edge)
-            .width(1.0)
+            .width(1.0_f32)
             .style(LineStyle::dashed_dense()),
     );
     plot_ui.vline(
         VLine::new("selection_right", x_max)
             .color(edge)
-            .width(1.0)
+            .width(1.0_f32)
             .style(LineStyle::dashed_dense()),
     );
 }
