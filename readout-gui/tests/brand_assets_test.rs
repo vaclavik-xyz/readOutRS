@@ -7,5 +7,8 @@ fn discoverable_project_icon_matches_master() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let master = std::fs::read(root.join("docs/icon_rounded.png")).expect("read master icon");
     let copy = std::fs::read(root.join("assets/icon.png")).expect("read assets/icon.png");
-    assert!(copy == master, "copy docs/icon_rounded.png to assets/icon.png");
+    assert!(
+        copy == master,
+        "copy docs/icon_rounded.png to assets/icon.png"
+    );
 }
